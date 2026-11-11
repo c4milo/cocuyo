@@ -22,6 +22,7 @@ const request_module = @import("io_request.zig");
 const tend_module = @import("io_request_connection_tend.zig");
 const context_module = @import("io_context.zig");
 const Kind = @import("io.zig").Kind;
+const operations = @import("io_operations.zig");
 
 /// One opening of a server's connection slot: its stage, its socket and receive, the transport's
 /// state, and the requests on it. `lookups` bounds the queue.
@@ -232,10 +233,10 @@ fn spend(self: anytype, server: u8, now_ns: u64) ?tls.Kept(@TypeOf(self.*).Quic)
     return kept;
 }
 
-/// The `user_data` of an operation on server `server`'s connection: the server, and its opening.
-pub fn user_data_of(self: anytype, kind: Kind, server: u8) u64 {
+/// The origin of an operation on server `server`'s connection: the server, and its opening.
+pub fn origin_of(self: anytype, kind: Kind, server: u8) operations.Origin {
     const incarnation: u64 = self.quic.connections[server].incarnation;
-    return @TypeOf(self.*).user_data(kind, (incarnation << constants.quic_incarnation_shift) | server);
+    return .{ .kind = kind, .index = (incarnation << constants.quic_incarnation_shift) | server };
 }
 
 // Failing and closing (request rules 7 and 9).

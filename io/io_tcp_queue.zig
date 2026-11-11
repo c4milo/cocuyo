@@ -22,6 +22,7 @@ const tcp = @import("io_tcp.zig");
 const tls = @import("io_tls.zig");
 const send_module = @import("io_send.zig");
 const ring = @import("io_tcp_queue_ring.zig");
+const operations = @import("io_operations.zig");
 
 pub const Queue = ring.Queue;
 
@@ -81,16 +82,16 @@ fn submit_rest(self: anytype, at: u8, now_ns: u64) void {
     // The slot was free when this opening began, and each send's event gave its buffer back.
     assert(connection.records_send == null);
     const head = connection.queue.first().?;
-    const user_data = if (head.is_query())
-        @TypeOf(self.*).user_data(.tcp_send, head.slot)
+    const origin: operations.Origin = if (head.is_query())
+        .{ .kind = .tcp_send, .index = head.slot }
     else
-        tcp.user_data_of(self, .tls_send, at);
-    const operation: rotor.Operation = .send(user_data, connection.descriptor.?, rest_of(self, at, head));
-    var handles: [1]rotor.Handle = undefined;
-    if (self.loop.submit(&.{operation}, &handles) != 1) return tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);
+        tcp.origin_of(self, .tls_send, at);
+    const operation: rotor.Operation = .send(undefined, connection.descriptor.?, rest_of(self, at, head));
+    const submitted = operations.submit(self, origin, operation) orelse
+        return tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);
     connection.sending = true;
     // `shut` cancels the send by this handle (docs/design.md §16 decision 49).
-    connection.send_handle = handles[0];
+    connection.send_handle = submitted.handle;
     // Over TLS each send reads the records buffer, a query's too, and the buffer is the loop's
     // until the send's final event (§21, TLS rule 3).
     if (tls.speaks(self)) connection.records_send = head.slot;

@@ -318,7 +318,7 @@
         .id = "SQ9",
         .what = "a send the loop refuses leaves the queue stuck",
         .edits = .{
-            .{ .file = "io/io_tcp_queue.zig", .old = "    if (self.loop.submit(&.{operation}, &handles) != 1) return tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);", .new = "    _ = now_ns;\n    if (self.loop.submit(&.{operation}, &handles) != 1) return;" },
+            .{ .file = "io/io_tcp_queue.zig", .old = "    const submitted = operations.submit(self, origin, operation) orelse\n        return tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);", .new = "    _ = now_ns;\n    const submitted = operations.submit(self, origin, operation) orelse return;" },
         },
         .caught_by = .short_walks,
     },
@@ -337,7 +337,7 @@
         .id = "U1",
         .what = "a receive a replaced socket left behind keeps its datagram's buffer",
         .edits = .{
-            .{ .file = "io/io_events.zig", .old = "    const found = self.sockets.find(index) orelse {\n        if (event.flags.buffer) self.loop.give_back_buffer(self.group.id, event.flags.buffer_id);\n        return;\n    };", .new = "    const found = self.sockets.find(index) orelse return;" },
+            .{ .file = "io/io_events.zig", .old = "    const found = self.sockets.find(id, index) orelse {\n        if (event.flags.buffer) self.loop.give_back_buffer(self.group.id, event.flags.buffer_id);\n        return;\n    };", .new = "    const found = self.sockets.find(id, index) orelse return;" },
         },
         .caught_by = .short_walks,
     },
@@ -346,7 +346,7 @@
         .id = "U2",
         .what = "a socket's receive the loop refused is never asked for again",
         .edits = .{
-            .{ .file = "io/io_udp.zig", .old = "        if (!self.items[index].receiving) self.arm(loop, &self.items[index], index, tag) catch {};", .new = "        if (!self.items[index].receiving and self.items[index].armed_generation == 0) self.arm(loop, &self.items[index], index, tag) catch {};" },
+            .{ .file = "io/io_udp.zig", .old = "        if (!self.items[index].receiving) self.arm(engine, &self.items[index], index) catch {};", .new = "        if (!self.items[index].receiving and self.items[index].receive_id == null) self.arm(engine, &self.items[index], index) catch {};" },
         },
         .caught_by = .short_walks,
     },
@@ -400,7 +400,7 @@
         .id = "W5",
         .what = "a draining socket's refused receive is never asked for again",
         .edits = .{
-            .{ .file = "io/io_udp.zig", .old = "        if (draining.open and !draining.receiving) self.arm(loop, draining, index, tag) catch {};", .new = "        _ = draining;" },
+            .{ .file = "io/io_udp.zig", .old = "        if (draining.open and !draining.receiving) self.arm(engine, draining, index) catch {};", .new = "        _ = draining;" },
         },
         .caught_by = .short_walks,
     },
@@ -409,7 +409,7 @@
         .id = "W6",
         .what = "a draining socket's ended receive is armed on the current one",
         .edits = .{
-            .{ .file = "io/io_events.zig", .old = "        self.sockets.arm(self.loop, found.socket, found.server, @TypeOf(self.*).tag) catch {};", .new = "        self.sockets.arm(self.loop, &self.sockets.items[found.server], found.server, @TypeOf(self.*).tag) catch {};" },
+            .{ .file = "io/io_events.zig", .old = "        self.sockets.arm(self, found.socket, found.server) catch {};", .new = "        self.sockets.arm(self, &self.sockets.items[found.server], found.server) catch {};" },
         },
         .caught_by = .short_walks,
     },
@@ -465,7 +465,7 @@
         .id = "CR5",
         .what = "a connect's submission does not mark its slot",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    connection.handle = handles[0];\n    connection.connect_in_flight = true;", .new = "    connection.handle = handles[0];" },
+            .{ .file = "io/io_tcp.zig", .old = "    connection.handle = submitted.handle;\n    connection.connect_in_flight = true;", .new = "    connection.handle = submitted.handle;" },
             .{ .file = "io/io_tcp.zig", .old = "    assert(slot.connect_in_flight);\n    slot.connect_in_flight = false;", .new = "    slot.connect_in_flight = false;" },
         },
         .caught_by = .short_walks,
@@ -575,7 +575,7 @@
         .id = "RW11",
         .what = "a datagram the loop refused is dropped",
         .edits = .{
-            .{ .file = "io/io_request_connection_tend.zig", .old = "    if (self.loop.submit(&.{operation}, &.{}) != 1) return;\n    slot.lent = true;", .new = "    if (self.loop.submit(&.{operation}, &.{}) != 1) {\n        connection.made = 0;\n        return;\n    }\n    slot.lent = true;" },
+            .{ .file = "io/io_request_connection_tend.zig", .old = "    if (operations.submit(self, connection_module.origin_of(self, .quic_send, server), operation) == null) return;\n    slot.lent = true;", .new = "    if (operations.submit(self, connection_module.origin_of(self, .quic_send, server), operation) == null) {\n        connection.made = 0;\n        return;\n    }\n    slot.lent = true;" },
         },
         .caught_by = .short_walks,
     },
@@ -668,7 +668,7 @@
         .id = "CE8",
         .what = "a TCP link's connection starts with its connect, before it has succeeded",
         .edits = .{
-            .{ .file = "io/io_channel_link.zig", .old = "    state.connect = handles[0];\n    slot.connecting = true;\n}\n", .new = "    state.connect = handles[0];\n    slot.connecting = true;\n    start(self, server, at, now_ns);\n}\n" },
+            .{ .file = "io/io_channel_link.zig", .old = "    state.connect = submitted.handle;\n    slot.connecting = true;\n}\n", .new = "    state.connect = submitted.handle;\n    slot.connecting = true;\n    start(self, server, at, now_ns);\n}\n" },
         },
         .caught_by = .short_walks,
     },
@@ -1252,7 +1252,7 @@
         .id = "CZ26",
         .what = "reinit opens its sockets before it builds its table and its cache, so a reinit that fails keeps the cache it had",
         .edits = .{
-            .{ .file = "io/io_lifecycle.zig", .old = "    reset_tables(self, config, cache_memory, seed);\n    try self.sockets.open(self.loop, config, seed, @TypeOf(self.*).tag, self.group.id);", .new = "    try self.sockets.open(self.loop, config, seed, @TypeOf(self.*).tag, self.group.id);\n    reset_tables(self, config, cache_memory, seed);" },
+            .{ .file = "io/io_lifecycle.zig", .old = "    reset_tables(self, config, cache_memory, seed);\n    try self.sockets.open(self, seed);", .new = "    try self.sockets.open(self, seed);\n    reset_tables(self, config, cache_memory, seed);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -1850,15 +1850,6 @@
     },
     .{
         .section = "Tests at the named limits",
-        .id = "LM33",
-        .what = "a receive generation does not wrap",
-        .edits = .{
-            .{ .file = "io/io_udp.zig", .old = "        self.next_generation +%= 1;", .new = "        self.next_generation += 1;" },
-        },
-        .caught_by = .{ .step = "test-io" },
-    },
-    .{
-        .section = "Tests at the named limits",
         .id = "LM34",
         .what = "a socket epoch does not wrap",
         .edits = .{
@@ -1881,24 +1872,6 @@
         .what = "a channel link incarnation does not wrap",
         .edits = .{
             .{ .file = "io/io_channel_link.zig", .old = "    state.incarnation +%= 1;", .new = "    state.incarnation += 1;" },
-        },
-        .caught_by = .{ .step = "test-io" },
-    },
-    .{
-        .section = "Tests at the named limits",
-        .id = "LM37",
-        .what = "the timer generation does not wrap",
-        .edits = .{
-            .{ .file = "io/io_drive.zig", .old = "    self.timer_generation +%= 1;", .new = "    self.timer_generation += 1;" },
-        },
-        .caught_by = .{ .step = "test-io" },
-    },
-    .{
-        .section = "Tests at the named limits",
-        .id = "LM38",
-        .what = "the index of a user_data loses its top bit",
-        .edits = .{
-            .{ .file = "io/constants.zig", .old = "pub const index_mask: u64 = (1 << kind_shift) - 1;", .new = "pub const index_mask: u64 = (1 << (kind_shift - 1)) - 1;" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -2034,15 +2007,6 @@
         .what = "records made behind an entry of records that has not started do not join it",
         .edits = .{
             .{ .file = "io/io_tls.zig", .old = "    if (queue.sealed > 1 and !queue.at(queue.sealed - 1).is_query()) {", .new = "    if (false and queue.sealed > 1 and !queue.at(queue.sealed - 1).is_query()) {" },
-        },
-        .caught_by = .{ .step = "test-io" },
-    },
-    .{
-        .section = "Tests at the named limits",
-        .id = "LM54",
-        .what = "the server index of a receive keeps two bits",
-        .edits = .{
-            .{ .file = "io/constants.zig", .old = "pub const receive_index_mask: usize = (1 << receive_generation_shift) - 1;", .new = "pub const receive_index_mask: usize = (1 << (receive_generation_shift - 6)) - 1;" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -3579,7 +3543,7 @@
         .id = "CL7",
         .what = "a send keeps no handle",
         .edits = .{
-            .{ .file = "io/io_tcp_queue.zig", .old = "    connection.send_handle = handles[0];\n", .new = "" },
+            .{ .file = "io/io_tcp_queue.zig", .old = "    connection.send_handle = submitted.handle;\n", .new = "    _ = submitted;\n" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -3743,7 +3707,7 @@
         .id = "RS29",
         .what = "a send the loop refuses during the handshake gives the reason handshake",
         .edits = .{
-            .{ .file = "io/io_tcp_queue.zig", .old = "    if (self.loop.submit(&.{operation}, &handles) != 1) return tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);", .new = "    if (self.loop.submit(&.{operation}, &handles) != 1) return tcp.fail(self, at, tcp.reason_of(self, at, .handshake), now_ns);" },
+            .{ .file = "io/io_tcp_queue.zig", .old = "    const submitted = operations.submit(self, origin, operation) orelse\n        return tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);", .new = "    const submitted = operations.submit(self, origin, operation) orelse\n        return tcp.fail(self, at, tcp.reason_of(self, at, .handshake), now_ns);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -4584,7 +4548,7 @@
         .id = "DL7",
         .what = "a link's send keeps no handle",
         .edits = .{
-            .{ .file = "io/io_channel_link.zig", .old = "    state.send_handle = handles[0];\n", .new = "" },
+            .{ .file = "io/io_channel_link.zig", .old = "    state.send_handle = submitted.handle;\n", .new = "    _ = submitted;\n" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -8614,5 +8578,77 @@
             .{ .file = "src/sim/sim_loop.zig", .old = "        return @enumFromInt(loop.reserved - 1);", .new = "        return @enumFromInt(loop.reserved);" },
         },
         .caught_by = .{ .step = "test-sim" },
+    },
+    .{
+        .section = "Operation ids",
+        .id = "OI1",
+        .what = "the table of operations gives a slot past its last",
+        .edits = .{
+            .{ .file = "io/io_operations.zig", .old = "            if (self.free_count == 0) return null;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "Operation ids",
+        .id = "OI2",
+        .what = "a freed slot's next id is the id that it had",
+        .edits = .{
+            .{ .file = "io/io_operations.zig", .old = "            self.generations[slot] +%= 1;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "Operation ids",
+        .id = "OI3",
+        .what = "the table holds the id of a slot's earlier generation",
+        .edits = .{
+            .{ .file = "io/io_operations.zig", .old = "            return self.held[slot] and self.generations[slot] == id.generation();", .new = "            return self.held[slot];" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "Operation ids",
+        .id = "OI4",
+        .what = "an operation's id is freed at each of its events",
+        .edits = .{
+            .{ .file = "io/io_events.zig", .old = "    if (event.is_final()) self.operations.release(id);", .new = "    self.operations.release(id);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "Operation ids",
+        .id = "OI5",
+        .what = "an operation's id is never freed",
+        .edits = .{
+            .{ .file = "io/io_events.zig", .old = "    if (event.is_final()) self.operations.release(id);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "Operation ids",
+        .id = "OI6",
+        .what = "the end of a replaced timer is taken for the current timer's",
+        .edits = .{
+            .{ .file = "io/io_events.zig", .old = "    if (self.timer_id != id) return;", .new = "    _ = id;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "Operation ids",
+        .id = "OI7",
+        .what = "a socket's receive is the current one whatever its id",
+        .edits = .{
+            .{ .file = "io/io_udp.zig", .old = "        if (self.items[server].receive_id == id) {", .new = "        if (self.items[server].receive_id != null) {" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "Operation ids",
+        .id = "OI8",
+        .what = "the twin hands back the event due first in place of the operation's end",
+        .edits = .{
+            .{ .file = "src/sim/sim_loop.zig", .old = "        return loop.take_pending(loop.pending_count - 1);", .new = "        return loop.take_pending(loop.first_due().?);" },
+        },
+        .caught_by = .{ .step = "test-io" },
     },
 }

@@ -15,6 +15,7 @@ const limits = @import("limits.zig");
 const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
 const tls_test = @import("io_tls_test.zig");
+const tcp_test = @import("io_tcp_test.zig");
 const question = sim_test.question;
 
 /// One server and one connection slot over the twin's TLS, so that the first failure is the last.
@@ -50,7 +51,7 @@ test "a peer that closes while the handshake runs gives the handshake as the cau
     var rig: OneServer = .{};
     try until_handshaking(&rig, 130, .{});
     // Zero octets is the peer closing its side.
-    _ = rig.engine.apply(rotor.Event.success(tcp.user_data_of(&rig.engine, .tcp_receive, 0), 0), rig.loop.now());
+    try tcp_test.close_receive(&rig, 0);
     try expect_all_failed(&rig, .handshake);
     try rig.deinit();
 }
@@ -71,7 +72,7 @@ test "a send of the session's records that moves nothing while the handshake run
     try until_handshaking(&rig, 132, .{});
     // The hello's send is in flight, and the twin's sends do not fail, so its end is made to move
     // nothing.
-    const sent = tcp.user_data_of(&rig.engine, .tls_send, 0);
+    const sent = tcp_test.in_flight(&rig, tcp.origin_of(&rig.engine, .tls_send, 0)).?;
     var moved_nothing = false;
     for (0..fixtures.until_rounds_max) |_| {
         const count = try sim_test.tick_for(&rig.loop, &rig.events, fixtures.wait_ns);
@@ -99,9 +100,9 @@ test "a send the loop refuses while the handshake runs gives local as the cause"
     // The connect ends, and the loop refuses what the handshake asks of it then.
     var connected = false;
     for (0..fixtures.until_rounds_max) |_| {
-        const connect = tcp.user_data_of(&rig.engine, .tcp_connect, 0);
+        const connect = tcp_test.in_flight(&rig, tcp.origin_of(&rig.engine, .tcp_connect, 0));
         const count = try sim_test.tick_for(&rig.loop, &rig.events, fixtures.wait_ns);
-        for (rig.events[0..count]) |event| connected = connected or event.user_data == connect;
+        for (rig.events[0..count]) |event| connected = connected or (connect != null and event.user_data == connect.?);
         rig.loop.refuse_submissions = connected;
         for (rig.events[0..count]) |event| _ = rig.engine.apply(event, rig.loop.now());
         rig.loop.refuse_submissions = false;

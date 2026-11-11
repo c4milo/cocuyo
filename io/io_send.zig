@@ -18,6 +18,7 @@ const rotor = @import("rotor");
 const udp = @import("io_udp.zig");
 const tcp_queue = @import("io_tcp_queue.zig");
 const kept_module = @import("io_kept.zig");
+const operations = @import("io_operations.zig");
 
 /// The attempt a send was made for: the lookup, and the transaction it was on.
 pub const Owner = struct {
@@ -75,14 +76,14 @@ fn send_datagram(self: anytype, index: usize, server: cocuyo.Endpoint, bytes: []
     @memcpy(self.send_buffers[index][0..bytes.len], bytes);
     self.outbounds[index] = udp.outbound_to(server);
     const operation: rotor.Operation = .{
-        .user_data = @TypeOf(self.*).user_data(.udp_send, index),
+        .user_data = undefined,
         .kind = .{ .send_to = .{
             .socket = self.sockets.descriptor_of(slot),
             .buffer = .{ .bytes = self.send_buffers[index][0..bytes.len] },
             .to = &self.outbounds[index],
         } },
     };
-    if (self.loop.submit(&.{operation}, &.{}) == 1) {
+    if (operations.submit(self, .{ .kind = .udp_send, .index = index }, operation) != null) {
         lend(self, index);
         self.sent_from[index] = .{ .server = slot, .epoch = self.sockets.epoch_of(slot) };
         kept_module.note_sent(self, index, slot, self.sockets.epoch_of(slot));

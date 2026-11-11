@@ -294,42 +294,33 @@ test "the timer follows the table's soonest deadline" {
     try rig.deinit();
 }
 
-test "the end of a timer the engine has replaced is not taken for the current one's, across the wrap" {
-    // The table's deadline is a bound that never moves earlier while lookups wait (§11), so the
-    // engine replaces a timer rarely; when it does, the old one's canceled end arrives after the
-    // new one is armed (rotor decision 5, rule 2). The generation in the `user_data` is what
-    // tells them apart, and this hands the engine an end from the timer before the current one.
-    // The generation starts one short of the last of its thirty-two bits. The first timer runs at
-    // the largest generation, and the second wraps it to zero.
+test "the end of a timer the engine has replaced is not taken for the current one's" {
+    // The engine replaces its timer when the deadline moves, and the old timer's canceled end
+    // arrives after the new one is armed (rotor decision 5, rule 2). The table holds the two ids
+    // then, and the id is what tells them apart (docs/design.md §26 step 4.1). The table's
+    // deadline is a bound that moves only when it comes (§11), so the test moves the deadline
+    // that the timer was armed for, and the next drive replaces the timer.
     var rig: Rig = .{};
     try rig.init(9, .{ .{ .down = true }, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = 2_000_000_000, .attempts = 1 });
-    rig.engine.timer_generation = std.math.maxInt(u32) - 1;
-    const started = try rig.engine.start(&question("first.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("first.example."), rig.loop.now());
     _ = try rig.step(0);
+    const replaced = rig.engine.timer_id.?;
     try testing.expectEqual(@as(?u64, 2_000_000_000), rig.engine.timer_due_ns);
-    try testing.expectEqual(@as(u32, std.math.maxInt(u32)), rig.engine.timer_generation);
-    // That timer ends at the first server's deadline. The next one is armed for the second
-    // server's once the query to it has gone.
-    for (0..fixtures.until_rounds_max) |_| {
-        if (rig.engine.timer_handle != null and rig.loop.now() >= 2_000_000_000) break;
-        _ = try rig.step(2_000_000_000);
-    }
+    rig.engine.timer_due_ns = null;
+    rig.engine.drive(rig.loop.now());
+    const current = rig.engine.timer_id.?;
     const armed = rig.engine.timer_handle;
-    try testing.expect(armed != null);
-    try testing.expectEqual(@as(?u64, 4_000_000_000), rig.engine.timer_due_ns);
-    try testing.expectEqual(@as(u32, 0), rig.engine.timer_generation);
-
-    const stale: rotor.Event = .{
-        .user_data = Resolver.user_data(.timer, rig.engine.timer_generation -% 1),
-        .result = 0,
-        .flags = .{},
-    };
-    try testing.expect(rig.engine.apply(stale, rig.loop.now()));
+    try testing.expect(current != replaced);
+    try testing.expect(rig.engine.operations.holds(replaced));
+    try testing.expectEqual(@as(?u64, 2_000_000_000), rig.engine.timer_due_ns);
+    // The replaced timer's end arrives, and the current timer stays.
+    try testing.expectEqual(@as(u32, 1), try rig.step(0));
+    try testing.expect(!rig.engine.operations.holds(replaced));
+    try testing.expectEqual(current, rig.engine.timer_id.?);
     try testing.expectEqual(armed, rig.engine.timer_handle);
-    try testing.expectEqual(@as(?u64, 4_000_000_000), rig.engine.timer_due_ns);
-
-    rig.engine.cancel(started, rig.loop.now());
-    try testing.expectEqual(cocuyo.Error.Canceled, (try rig.until_result()).outcome.failure.err);
+    try testing.expectEqual(@as(?u64, 2_000_000_000), rig.engine.timer_due_ns);
+    // The current timer fires at the deadline.
+    try testing.expectEqual(cocuyo.Error.Timeout, (try rig.until_result()).outcome.failure.err);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }
@@ -344,7 +335,7 @@ test "an event another component submitted is handed back untouched" {
     _ = try rig.step(0);
     const armed = rig.engine.timer_handle;
     try testing.expect(armed != null);
-    const own = Resolver.user_data(.timer, rig.engine.timer_generation);
+    const own = Resolver.user_data(rig.engine.timer_id.?);
     const other_tag: u64 = Resolver.tag +% 1;
     const below_tag: u64 = (@as(u64, 1) << io.constants.tag_shift) - 1;
     const foreign: rotor.Event = .{ .user_data = (other_tag << io.constants.tag_shift) | (own & below_tag), .result = 0, .flags = .{} };

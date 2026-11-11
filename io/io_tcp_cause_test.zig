@@ -13,6 +13,7 @@ const tcp = @import("io_tcp.zig");
 
 const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
+const tcp_test = @import("io_tcp_test.zig");
 const Rig = sim_test.Rig;
 const question = sim_test.question;
 const Streamless = @import("io_tcp_test.zig").Streamless;
@@ -46,8 +47,7 @@ test "a lookup whose every stream failed once up ends in AllServersFailed, its c
         // The query is on its way out on the server's connection, which is up, and the peer
         // resets it.
         const at = try until_up(&rig, @intCast(server));
-        const receive = tcp.user_data_of(&rig.engine, .tcp_receive, at);
-        _ = rig.engine.apply(rotor.Event.failure(receive, .connection_reset), rig.loop.now());
+        try tcp_test.reset_receive(&rig, at);
     }
     try expect_all_failed(&rig, 1, .closed);
     try rig.deinit();
@@ -81,7 +81,7 @@ test "a query send that fails on a connection that is up gives closed as the cau
     try testing.expect(rig.engine.connections[0].sending);
     // The twin's sends do not fail, so the query's is made to.
     const count = try sim_test.tick_for(&rig.loop, &rig.events, fixtures.wait_ns);
-    const sent = @TypeOf(rig.engine).user_data(.tcp_send, handle.index);
+    const sent = tcp_test.send_of(&rig, handle.index);
     var failed = false;
     for (rig.events[0..count]) |*event| {
         if (event.user_data != sent) continue;
@@ -137,8 +137,7 @@ test "a lookup whose every stream the peer closed once up ends in AllServersFail
     for (0..fixtures.servers) |server| {
         // Zero octets is the peer closing its side of a connection that is up.
         const at = try until_up(&rig, @intCast(server));
-        const receive = tcp.user_data_of(&rig.engine, .tcp_receive, at);
-        _ = rig.engine.apply(rotor.Event.success(receive, 0), rig.loop.now());
+        try tcp_test.close_receive(&rig, at);
     }
     try expect_all_failed(&rig, 1, .closed);
     try rig.deinit();
@@ -153,9 +152,9 @@ test "a query's send that the loop refuses on a connection that is up gives clos
     _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     var connected = false;
     for (0..fixtures.until_rounds_max) |_| {
-        const connect = tcp.user_data_of(&rig.engine, .tcp_connect, 0);
+        const connect = tcp_test.in_flight(&rig, tcp.origin_of(&rig.engine, .tcp_connect, 0));
         const count = try sim_test.tick_for(&rig.loop, &rig.events, fixtures.wait_ns);
-        for (rig.events[0..count]) |event| connected = connected or event.user_data == connect;
+        for (rig.events[0..count]) |event| connected = connected or (connect != null and event.user_data == connect.?);
         rig.loop.refuse_submissions = connected;
         for (rig.events[0..count]) |event| _ = rig.engine.apply(event, rig.loop.now());
         rig.loop.refuse_submissions = false;

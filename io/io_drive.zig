@@ -18,6 +18,7 @@ const request_connection = @import("io_request_connection.zig");
 const request_tend = @import("io_request_connection_tend.zig");
 const channel_module = @import("io_channel.zig");
 const channel_link = @import("io_channel_link.zig");
+const operations = @import("io_operations.zig");
 
 /// Shuts first each link that has closed for `quic_idle_ns`, and reads its channel (§24, request
 /// rule 24). Then it polls the table for what every lookup wants and does it, until nothing is
@@ -113,13 +114,12 @@ fn report(self: anytype, index: usize, outcome: results_module.Outcome, now_ns: 
 /// on it is closed at once. Then each socket with no receive is given one, since a refusal is not
 /// a reason to go deaf.
 fn tend_sockets(self: anytype) void {
-    const tag = @TypeOf(self.*).tag;
     var server: u8 = 0;
     while (server < self.sockets.count) : (server += 1) {
         close_if_drained(self, server);
-        if (self.sockets.is_due(server)) self.sockets.rotate(self.loop, self.config, server, tag) catch {};
+        if (self.sockets.is_due(server)) self.sockets.rotate(self, server) catch {};
         close_if_drained(self, server);
-        self.sockets.tend(self.loop, server, tag);
+        self.sockets.tend(self, server);
     }
 }
 
@@ -158,14 +158,12 @@ fn arm_timer(self: anytype, now_ns: u64) void {
         self.timer_handle = null;
     }
     self.timer_due_ns = due;
+    self.timer_id = null;
     const deadline = due orelse return;
-    self.timer_generation +%= 1;
-    const operation: rotor.Operation = .{
-        .user_data = @TypeOf(self.*).user_data(.timer, self.timer_generation),
-        .kind = .{ .timer = .{ .after_ns = deadline -| now_ns } },
-    };
-    var handles: [1]rotor.Handle = undefined;
-    if (self.loop.submit(&.{operation}, &handles) == 1) self.timer_handle = handles[0];
+    const operation: rotor.Operation = .timer(undefined, deadline -| now_ns, 0);
+    const submitted = operations.submit(self, .{ .kind = .timer, .index = 0 }, operation) orelse return;
+    self.timer_id = submitted.id;
+    self.timer_handle = submitted.handle;
 }
 
 fn earliest(a: ?u64, b: ?u64) ?u64 {

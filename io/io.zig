@@ -45,6 +45,10 @@ const context_module = @import("io_context.zig");
 const request_connection = @import("io_request_connection.zig");
 const request_tend = @import("io_request_connection_tend.zig");
 const request_events = @import("io_request_events.zig");
+const operations_module = @import("io_operations.zig");
+/// What an operation in flight is for, which a test names to find its id.
+pub const Origin = operations_module.Origin;
+pub const OperationId = @import("io_interface.zig").OperationId;
 
 pub const Options = struct {
     lookups: u16 = constants.lookups_default,
@@ -93,6 +97,15 @@ pub fn Resolver(comptime options: Options) type {
     // The stream of a DoQ answer holds the message and its prefix (RFC 9250 §4.2).
     const answer_bytes = sizes.with_requests(options, core.constants.tcp_prefix_bytes + options.tcp_message_bytes);
     comptime sizes.check_transports(options);
+    // What `Loop.Options.operations` needs for this engine: a send per lookup, a receive per
+    // server, a connect and a receive per connection, a receive and a send per QUIC connection,
+    // one timer, and slack. Its type is written, so the `usize` limits in the sum do not change it
+    // from `u32` (docs/design.md §16 decision 40).
+    const operations_in_flight_max: u32 = @as(u32, options.lookups) + cocuyo.limits.servers_max +
+        limits.loop_operations_per_connection_max * @as(u32, options.tcp_connections) +
+        limits.loop_operations_per_quic_connection_max * @as(u32, quic_servers) +
+        limits.loop_operations_per_channel_max * @as(u32, doh_servers) +
+        limits.loop_operations_slack_max;
     return struct {
         const Self = @This();
 
@@ -161,13 +174,15 @@ pub fn Resolver(comptime options: Options) type {
         results: results_module.Queue(options.lookups),
         /// The result handed out last, whose slot is freed at the next `take`.
         last_taken: ?cocuyo.Handle,
+        /// Each operation in flight, from its submit to its final event (docs/design.md §26 step
+        /// 4.1).
+        operations: operations_module.Table(operations_in_flight_max),
         timer_handle: ?rotor.Handle,
         timer_due_ns: ?u64,
-        /// Which timer is the current one: the index of its `user_data`, raised each time one is
-        /// armed, so the canceled end of a timer the deadline moved away from is told from the
-        /// current timer's fire (rotor decision 5, rule 2: a cancel answers through the
-        /// target's own final event, which arrives after the new timer is armed).
-        timer_generation: u32,
+        /// The current timer's id. A cancel answers through the target's own final event, which
+        /// arrives after the new timer is armed (rotor decision 5, rule 2). The table holds the
+        /// two ids at once, so the end of the canceled timer has an id other than this one.
+        timer_id: ?OperationId,
         scratch: [cocuyo.limits.query_bytes_max]u8,
         closing: bool,
 
@@ -194,15 +209,10 @@ pub fn Resolver(comptime options: Options) type {
         /// The channel type, which `io_channel.zig` reads through the engine.
         pub const Doh = options.doh;
 
-        /// What `Loop.Options.operations` needs for this engine: a send per lookup, a receive
-        /// per server, a connect and a receive per connection, a receive and a send per QUIC
-        /// connection, one timer, and slack. Its type is written, so the `usize` limits in the
-        /// sum do not change it from `u32` (docs/design.md §16 decision 40).
-        pub const loop_operations: u32 = @as(u32, options.lookups) + cocuyo.limits.servers_max +
-            limits.loop_operations_per_connection_max * @as(u32, options.tcp_connections) +
-            limits.loop_operations_per_quic_connection_max * @as(u32, quic_servers) +
-            limits.loop_operations_per_channel_max * @as(u32, doh_servers) +
-            limits.loop_operations_slack_max;
+        /// What `Loop.Options.operations` needs for this engine. The engine's table of
+        /// operations holds as many, so the table refuses an operation only when a loop of this
+        /// size refuses it too (docs/design.md §26 step 4.1).
+        pub const loop_operations: u32 = operations_in_flight_max;
 
         /// Starts the engine on the caller's loop. `cache_memory` is the memory of its cache,
         /// the slots and the key index as `cocuyo.Cache.init` takes them, or null for an engine
@@ -236,9 +246,10 @@ pub fn Resolver(comptime options: Options) type {
             self.sent_from = @splat(null);
             self.trust = null;
             lifecycle.reset_tables(self, config, cache_memory, seed);
+            self.operations.reset();
             self.timer_handle = null;
             self.timer_due_ns = null;
-            self.timer_generation = 0;
+            self.timer_id = null;
             self.closing = false;
             self.connections = @splat(.{});
             self.tcp_connection = @splat(null);
@@ -254,10 +265,10 @@ pub fn Resolver(comptime options: Options) type {
             self.doh = .{};
             self.requests = @splat(.{});
             self.request_pool.reset();
-            self.sockets.reset_generation();
+            self.sockets.reset_epoch();
             try self.group.provide(loop);
             try self.tcp_group.provide(loop);
-            try self.sockets.open(loop, config, seed, options.tag, self.group.id);
+            try self.sockets.open(self, seed);
             _ = now_ns;
         }
 
@@ -424,14 +435,14 @@ pub fn Resolver(comptime options: Options) type {
         }
 
         comptime {
-            // A connection's slot shares its `user_data` with its incarnation (`io_tcp.zig`).
+            // A connection's slot shares its origin's index with its incarnation (`io_tcp.zig`).
             assert(options.tcp_connections <= constants.tcp_slot_mask + 1);
         }
 
-        pub fn user_data(kind: Kind, index: usize) u64 {
-            assert(index <= constants.index_mask);
-            return (@as(u64, options.tag) << constants.tag_shift) |
-                (@as(u64, @intFromEnum(kind)) << constants.kind_shift) | index;
+        /// The `user_data` of the operation `id`: the engine's tag in the high bits, and the id in
+        /// the low 32 (docs/design.md §26, The decision, point 5).
+        pub fn user_data(id: OperationId) u64 {
+            return (@as(u64, options.tag) << constants.tag_shift) | @intFromEnum(id);
         }
     };
 }
@@ -456,6 +467,8 @@ test {
     _ = @import("io_request_template.zig");
     _ = @import("io_tcp_queue_ring.zig");
     _ = @import("io_reset.zig");
+    _ = @import("io_interface.zig");
+    _ = operations_module;
     // The tests drive the engine on the twin, which is the only `rotor` that has scripts.
     if (comptime @hasDecl(rotor, "server")) {
         _ = @import("io_sim_test.zig");

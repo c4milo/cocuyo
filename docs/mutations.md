@@ -12221,3 +12221,38 @@ the lowest id, and refuses one more past its last. E8, U1 and CZ26 name lines th
 | E8 | a stale event keeps its buffer | the engine model's short walks | `CAUGHT` |
 | U1 | a receive that a replaced socket left behind keeps its datagram's buffer | the engine model's short walks | `CAUGHT` |
 | CZ26 | `reinit` opens its sockets before it builds its table and its cache | `zig build test-io` | `CAUGHT` |
+
+## Operation ids
+
+2026-11-11, docs/design.md §26 step 4.1. Each operation that the engine submits takes an
+`OperationId` from a table of the operations in flight, and keeps it until its final event. The id
+is the low 32 bits of the `user_data`. The table names the handler of each event, and an event
+whose id the table does not hold is a halt (§26, host rule 5). So the generations of the timer and
+of the UDP receives leave: the current timer and each socket keep their operation's id. A test that
+ends a receive with a reset or a close now ends the twin's own operation, through `end_first`. LM33,
+LM37, LM38 and LM54 left with the generations and the layout of a `user_data` that they broke. SQ9,
+U1, U2, W5, W6, CR5, RW11, CE8, CZ26, CL7, RS29 and DL7 name lines that changed, and `zig build
+mutations -- engine` ran each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| OI1 | the table of operations gives a slot past its last | `zig build test-io` | `CAUGHT` |
+| OI2 | a freed slot's next id is the id that it had | `zig build test-io` | `CAUGHT` |
+| OI3 | the table holds the id of a slot's earlier generation | `zig build test-io` | `CAUGHT` |
+| OI4 | an operation's id is freed at each of its events | `zig build test-io` | `CAUGHT` |
+| OI5 | an operation's id is never freed | `zig build test-io` | `CAUGHT` |
+| OI6 | the end of a replaced timer is taken for the current timer's | `zig build test-io` | `CAUGHT` |
+| OI7 | a socket's receive is the current one whatever its id | the engine model's short walks | `CAUGHT` |
+| OI8 | the twin hands back the event due first in place of the operation's end | `zig build test-io` | `CAUGHT` |
+| SQ9 | a send the loop refuses leaves the queue stuck | the engine model's short walks | `CAUGHT` |
+| U1 | a receive a replaced socket left behind keeps its datagram's buffer | the engine model's short walks | `CAUGHT` |
+| U2 | a socket's receive the loop refused is never asked for again | the engine model's short walks | `CAUGHT` |
+| W5 | a draining socket's refused receive is never asked for again | the engine model's short walks | `CAUGHT` |
+| W6 | a draining socket's ended receive is armed on the current one | the engine model's short walks | `CAUGHT` |
+| CR5 | a connect's submission does not mark its slot | the engine model's short walks | `CAUGHT` |
+| RW11 | a datagram the loop refused is dropped | the engine model's short walks | `CAUGHT` |
+| CE8 | a TCP link's connection starts with its connect, before it has succeeded | the engine model's short walks | `CAUGHT` |
+| CZ26 | reinit opens its sockets before it builds its table and its cache, so a reinit that fails keeps the cache it had | `zig build test-io` | `CAUGHT` |
+| CL7 | a send keeps no handle | `zig build test-io` | `CAUGHT` |
+| RS29 | a send the loop refuses during the handshake gives the reason handshake | `zig build test-io` | `CAUGHT` |
+| DL7 | a link's send keeps no handle | `zig build test-io` | `CAUGHT` |

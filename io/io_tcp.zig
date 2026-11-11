@@ -21,6 +21,7 @@ const reset = @import("io_reset.zig");
 const wait_module = @import("io_tcp_wait.zig");
 const mark_module = @import("io_tcp_mark.zig");
 const kept_module = @import("io_kept.zig");
+const operations = @import("io_operations.zig");
 
 pub const Error = error{SocketFailed};
 /// What asking for a connection can meet: a socket or a connect refused, or no free slot.
@@ -205,14 +206,13 @@ fn connect(self: anytype, at: u8, server: u8) Error!void {
     connection.users = users;
     connection.keepers = keepers;
     connection.idle_since_ns = idle_since_ns;
-    const operation: rotor.Operation = .connect(user_data_of(self, .tcp_connect, at), descriptor, &connection.address);
-    var handles: [1]rotor.Handle = undefined;
-    if (self.loop.submit(&.{operation}, &handles) != 1) {
+    const operation: rotor.Operation = .connect(undefined, descriptor, &connection.address);
+    const submitted = operations.submit(self, origin_of(self, .tcp_connect, at), operation) orelse {
         rotor.sync.close_now(descriptor);
         connection.restart();
         return error.SocketFailed;
-    }
-    connection.handle = handles[0];
+    };
+    connection.handle = submitted.handle;
     connection.connect_in_flight = true;
 }
 
@@ -242,10 +242,10 @@ pub const release = kept_module.release;
 
 // What the loop says.
 
-/// The `user_data` of an operation on the connection in slot `at`: the slot, and its opening.
-pub fn user_data_of(self: anytype, kind: @import("io.zig").Kind, at: u8) u64 {
+/// The origin of an operation on the connection in slot `at`: the slot, and its opening.
+pub fn origin_of(self: anytype, kind: @import("io.zig").Kind, at: u8) operations.Origin {
     const incarnation: u64 = self.connections[at].incarnation;
-    return @TypeOf(self.*).user_data(kind, (incarnation << constants.tcp_incarnation_shift) | at);
+    return .{ .kind = kind, .index = (incarnation << constants.tcp_incarnation_shift) | at };
 }
 
 /// The slot of the connection an event is for, or null when the event is for an opening of the
@@ -327,11 +327,10 @@ fn receive_again(self: anytype, at: u8) void {
     const connection = &self.connections[at];
     if (connection.receiving or !(reads(connection.state) or connection.state == .closing)) return;
     const descriptor = connection.descriptor orelse return;
-    const operation: rotor.Operation = .receive_group(user_data_of(self, .tcp_receive, at), descriptor, self.tcp_group.id);
-    var handles: [1]rotor.Handle = undefined;
-    if (self.loop.submit(&.{operation}, &handles) == 1) {
+    const operation: rotor.Operation = .receive_group(undefined, descriptor, self.tcp_group.id);
+    if (operations.submit(self, origin_of(self, .tcp_receive, at), operation)) |submitted| {
         connection.receiving = true;
-        connection.handle = handles[0];
+        connection.handle = submitted.handle;
     }
 }
 

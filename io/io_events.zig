@@ -14,18 +14,24 @@ const tcp_queue = @import("io_tcp_queue.zig");
 const request_events = @import("io_request_events.zig");
 const channel_module = @import("io_channel.zig");
 const channel_link = @import("io_channel_link.zig");
-const Kind = @import("io.zig").Kind;
+const OperationId = @import("io_interface.zig").OperationId;
 
 /// One completion event. True when it was the engine's, in which case the engine has acted on
-/// it; false hands it back to the caller untouched.
+/// it; false hands it back to the caller untouched. The table names the operation's handler,
+/// and a final event frees its id first, so the handler may take the slot again (docs/design.md
+/// §26 step 4.1).
 pub fn apply(self: anytype, event: rotor.Event, now_ns: u64) bool {
     if (event.user_data >> constants.tag_shift != @TypeOf(self.*).tag) return false;
-    const kind: Kind = @enumFromInt(@as(u8, @truncate(event.user_data >> constants.kind_shift)));
-    const index: usize = @intCast(event.user_data & constants.index_mask);
-    switch (kind) {
+    // The engine writes nothing between its tag and the id.
+    assert(event.user_data & ~(@as(u64, std.math.maxInt(u16)) << constants.tag_shift) <= constants.operation_id_mask);
+    const id: OperationId = @enumFromInt(@as(u32, @truncate(event.user_data)));
+    const origin = self.operations.origin_of(id);
+    if (event.is_final()) self.operations.release(id);
+    const index: usize = @intCast(origin.index);
+    switch (origin.kind) {
         .udp_send => send_module.on_event(self, index, event, now_ns),
-        .udp_receive => on_receive_event(self, index, event, now_ns),
-        .timer => on_timer_event(self, index, now_ns),
+        .udp_receive => on_receive_event(self, id, index, event, now_ns),
+        .timer => on_timer_event(self, id, now_ns),
         .tcp_connect => tcp.on_connect_event(self, index, event, now_ns),
         .tcp_send => tcp_queue.on_send_event(self, index, event, now_ns),
         .tcp_receive => tcp.on_receive_event(self, index, event, now_ns),
@@ -43,22 +49,23 @@ pub fn apply(self: anytype, event: rotor.Event, now_ns: u64) bool {
 /// The current timer fired, or ended: it is gone, and so is the deadline it stood for, so the
 /// next drive arms one again even for a deadline the caller's clock has not reached yet. Each
 /// QUIC connection whose deadline has come is told (docs/design.md §24, request rule 11). The
-/// end of an earlier timer, one the deadline moved away from, is nothing: its generation says
-/// so, and the current timer is left as it is.
-fn on_timer_event(self: anytype, generation: usize, now_ns: u64) void {
-    if (generation != self.timer_generation) return;
+/// end of an earlier timer, one the deadline moved away from, is nothing: its id says so, and
+/// the current timer is left as it is.
+fn on_timer_event(self: anytype, id: OperationId, now_ns: u64) void {
+    if (self.timer_id != id) return;
+    self.timer_id = null;
     self.timer_handle = null;
     self.timer_due_ns = null;
     request_events.expire_due(self, now_ns);
     channel_module.expire_due(self, now_ns);
 }
 
-fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
+fn on_receive_event(self: anytype, id: OperationId, index: usize, event: rotor.Event, now_ns: u64) void {
     // A receive the socket left behind, because the port was replaced or the configuration was:
     // it changes nothing, and arming another is not this one's to do. A cancelled multishot can
     // still deliver a datagram before its end (rotor decision 5, rule 2), and its buffer goes
     // back to the group (docs/design.md §19 step 13, the datagram's rules 2 and 3).
-    const found = self.sockets.find(index) orelse {
+    const found = self.sockets.find(id, index) orelse {
         if (event.flags.buffer) self.loop.give_back_buffer(self.group.id, event.flags.buffer_id);
         return;
     };
@@ -67,7 +74,7 @@ fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64
     // A multishot that ended is armed again on the same socket, current or draining, unless the
     // engine is closing; one the loop refuses is asked for again at the next drive.
     if (event.is_final() and !self.closing) {
-        self.sockets.arm(self.loop, found.socket, found.server, @TypeOf(self.*).tag) catch {};
+        self.sockets.arm(self, found.socket, found.server) catch {};
     }
 }
 

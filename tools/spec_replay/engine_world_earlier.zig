@@ -10,9 +10,9 @@ pub const Error = error{Malformed};
 /// The lookup as its open earlier try at the receive's server left it, which the message is built
 /// from: that try's id, server, case and cookie.
 pub fn view(self: anytype, lookup: *const cocuyo.Lookup, kind: io.Kind, user_data: u64) Error!cocuyo.Lookup {
-    const index: usize = @intCast(user_data & io.constants.index_mask);
+    const index: usize = @intCast(@import("engine_world.zig").origin_of(self, user_data).index);
     const stream = kind == .tcp_receive;
-    const server: u8 = if (!stream) @intCast(index & io.constants.receive_index_mask) else server: {
+    const server: u8 = if (!stream) @intCast(index) else server: {
         // An engine with no TCP connection has no stream to receive on.
         if (comptime !@TypeOf(self.engine).keeps_tcp) return error.Malformed;
         break :server self.engine.connections[index & io.constants.tcp_slot_mask].server;

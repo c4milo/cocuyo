@@ -49,12 +49,12 @@ fn padded_answer(rig: anytype, handle: cocuyo.Handle, total: usize, out: []u8) !
 /// Hands the engine a completion of server `server`'s current receive, as the kernel writes one:
 /// the octets that fit the room of a buffer, and the truncated flag when the datagram was longer.
 fn deliver(rig: anytype, server: u8, datagram: []const u8) !void {
-    try deliver_to(rig, server, rig.engine.sockets.items[server].armed_generation, datagram);
+    try deliver_to(rig, server, rig.engine.sockets.items[server].receive_id.?, datagram);
 }
 
-/// The same, on the receive of server `server`'s socket armed as `generation`: its current one,
-/// or the one that drains.
-fn deliver_to(rig: anytype, server: u8, generation: usize, datagram: []const u8) !void {
+/// The same, on the receive `receive` of a socket of server `server`: its current one, or the one
+/// that drains.
+fn deliver_to(rig: anytype, server: u8, receive: io.OperationId, datagram: []const u8) !void {
     const group = &rig.loop.groups[@intFromEnum(rig.engine.group.id)];
     const id = group.take() orelse return error.NoBuffer;
     const buffer = rig.loop.provided_buffer(rig.engine.group.id, id);
@@ -64,9 +64,8 @@ fn deliver_to(rig: anytype, server: u8, generation: usize, datagram: []const u8)
     const metadata = buffer[rotor.constants.prefix_head_bytes..][0..@sizeOf(rotor.datagram.Received)];
     const received: *rotor.datagram.Received = @ptrCast(@alignCast(metadata));
     received.flags.truncated = datagram.len > kept.len;
-    const index = @as(usize, server) | (generation << io.constants.receive_generation_shift);
     const event: rotor.Event = .{
-        .user_data = @TypeOf(rig.engine).user_data(.udp_receive, index),
+        .user_data = @TypeOf(rig.engine).user_data(receive),
         .result = @intCast(len),
         .flags = .{ .buffer = true, .more = true, .buffer_id = id },
     };
@@ -162,7 +161,7 @@ test "a cut datagram on a draining socket moves its lookup to TCP, and the drive
     try testing.expect(rig.engine.sockets.draining[0].open);
     var out: [io.limits.buffer_bytes_max]u8 = undefined;
     const answer = try padded_answer(&rig, handle, room(&rig) + 1, &out);
-    try deliver_to(&rig, 0, rig.engine.sockets.draining[0].armed_generation, answer);
+    try deliver_to(&rig, 0, rig.engine.sockets.draining[0].receive_id.?, answer);
     try testing.expectEqual(resolver.State.connecting_tcp, rig.engine.resolver.lookup_of(handle).state);
     try testing.expect(!rig.engine.sockets.draining[0].open);
     rig.engine.cancel(handle, rig.loop.now());
@@ -222,12 +221,12 @@ test "a receive that ends on a datagram has the datagram read, and is armed agai
     rig.loop.network().multishot_deliveries_max = 1;
     const names = [_][]const u8{ "a.example.", "b.example.", "c.example.", "d.example." };
     for (names) |name| _ = try rig.engine.start(&question(name), rig.loop.now());
-    const armed = rig.engine.sockets.items[0].armed_generation;
+    const armed = rig.engine.sockets.items[0].receive_id.?;
     for (names) |_| {
         const result = try rig.until_result();
         try testing.expect(result.outcome == .answer);
     }
-    try testing.expect(rig.engine.sockets.items[0].armed_generation >= armed + names.len);
+    try testing.expect(rig.engine.sockets.items[0].receive_id.? != armed);
     try testing.expectEqual(@as(u8, 0), rig.engine.resolver.servers.failures(0));
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();

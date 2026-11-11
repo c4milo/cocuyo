@@ -1,5 +1,5 @@
 //! The constants of the I/O engine that are no limit (docs/design.md §19 step 13): its defaults,
-//! the layout of a `user_data`, its group ids, and the protocol sizes it reads. The limits of one
+//! the layout of a `user_data` and of an operation's id, and the protocol sizes it reads. The limits of one
 //! engine are in `limits.zig` (§16 decision 56).
 const std = @import("std");
 const limits = @import("limits.zig");
@@ -21,10 +21,14 @@ pub const cache_slots_default: usize = 1024;
 /// one loop gives each its own.
 pub const tag_default: u16 = 1;
 
-/// Where the tag and the kind sit in a `user_data`, above the index in the low bits.
+/// Where the tag sits in a `user_data`. The low 32 bits hold the operation's id, and the bits
+/// between the two are zero (docs/design.md §26, The decision, point 5).
 pub const tag_shift: u6 = 48;
-pub const kind_shift: u6 = 40;
-pub const index_mask: u64 = (1 << kind_shift) - 1;
+pub const operation_id_mask: u64 = std.math.maxInt(u32);
+
+/// Where the generation sits in an `OperationId`, above the slot in the low bits.
+pub const operation_generation_shift: u5 = 24;
+pub const operation_slot_mask: u32 = (1 << operation_generation_shift) - 1;
 
 /// The buffers the datagram group holds. The octets of each buffer are `limits.buffer_bytes_max`.
 /// The group's id is the one the loop reserves for it (rotor decision 29).
@@ -51,14 +55,7 @@ pub const tcp_group_buffers_default: usize = 8;
 /// short by the standard RFC 7766 §6.2.3 sets a client.
 pub const tcp_idle_ns_default: u64 = 10_000_000_000;
 
-/// Where a receive's generation sits in its `user_data`, above the server's index: a socket
-/// that has been replaced has a generation of its own, so the end of the receive it left behind
-/// is told from the one now armed. The generation is thirty-two bits, which the index's forty
-/// hold above the server's eight.
-pub const receive_generation_shift: u6 = 8;
-pub const receive_index_mask: usize = (1 << receive_generation_shift) - 1;
-
-/// Where a connection's incarnation sits in the `user_data` of its connect and its receive, above
+/// Where a connection's incarnation sits in the origin's index of its connect and its receive, above
 /// the connection's slot, so the event of an opening of the slot that is gone is told from the
 /// current one's (docs/design.md §19 step 13, the stream's rule 2). A slot fits in the octet
 /// below it.
@@ -74,7 +71,7 @@ pub const tls_record_length_at: usize = 3;
 /// (RFC 9846 §5.2).
 pub const tls_record_overhead_bytes: usize = tls_record_header_bytes + 1 + 16;
 
-/// Where a QUIC connection's incarnation sits in the `user_data` of its operations, above its
+/// Where a QUIC connection's incarnation sits in the origin's index of its operations, above its
 /// server's index, as a TCP connection's does above its slot. A server fits in the octet below.
 pub const quic_incarnation_shift: u6 = 8;
 pub const quic_server_mask: usize = (1 << quic_incarnation_shift) - 1;
@@ -99,11 +96,8 @@ pub const ns_per_millisecond: u64 = 1_000_000;
 comptime {
     // The shifts are `u6`. Each check adds in `comptime_int` and subtracts nothing, so a wrong
     // shift reaches its message and does not overflow first.
-    if (kind_shift < @as(comptime_int, receive_generation_shift) + 32) {
-        @compileError("a receive's user_data has no room for a thirty-two-bit generation");
-    }
-    if (@as(comptime_int, quic_incarnation_shift) + 32 > kind_shift) {
-        @compileError("a QUIC connection's user_data has no room for a thirty-two-bit incarnation");
+    if (@as(comptime_int, quic_incarnation_shift) + 32 > @bitSizeOf(u64)) {
+        @compileError("a QUIC connection's origin has no room for a thirty-two-bit incarnation");
     }
     if (limits.udp_payload_bytes_max < core.constants.udp_payload_bytes_default) {
         @compileError("a group buffer cannot hold the payload cocuyo advertises after rotor's prefix");

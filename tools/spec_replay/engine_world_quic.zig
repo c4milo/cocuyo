@@ -21,8 +21,8 @@ const Error = world_module.Error;
 pub fn step(self: anytype, op: []const u8, parts: *std.mem.SplitIterator(u8, .scalar)) Error!void {
     const loop_slot = try world_module.operation(self, op);
     const user_data = self.loop.slots[loop_slot].user_data;
-    if (world_module.kind_of(user_data) != .quic_receive) return error.Malformed;
-    const server: u8 = @intCast((user_data & io.constants.index_mask) & io.constants.quic_server_mask);
+    if (world_module.kind_of(self, user_data) != .quic_receive) return error.Malformed;
+    const server: u8 = @intCast(world_module.origin_of(self, user_data).index & io.constants.quic_server_mask);
     const name = parts.next() orelse return error.Malformed;
     const slot = try world_module.number(parts.next());
     const reply = std.meta.stringToEnum(fixtures.Reply, parts.next() orelse "");
@@ -83,17 +83,10 @@ fn answer_of(self: anytype, slot: usize, reply: fixtures.Reply, out: []u8) []con
 /// Server `server`'s connection's QUIC timer comes at this instant, with the outcome the walk
 /// names: the connection resends what is unacknowledged, or gives up. The engine hears it through
 /// its one timer, as it does whenever a connection's deadline comes (request rule 11). The model
-/// has no timer, so the replay fires the engine's own, or, when the loop refused it, delivers its
-/// fire by the generation the engine counts.
+/// has no timer, so the replay fires the engine's own (`engine_world.fire_timer`).
 pub fn expire(self: anytype, server: usize, name: []const u8) Error!void {
     const connection = &self.engine.quic.connections[server];
     connection.transport.expiry = std.meta.stringToEnum(rotor.quic.Connection.Expiry, name) orelse return error.Malformed;
     connection.transport.due_ns = self.now_ns;
-    const Resolver = @TypeOf(self.engine);
-    var user_data = Resolver.user_data(.timer, self.engine.timer_generation);
-    if (self.engine.timer_handle) |handle| {
-        user_data = self.loop.slots[handle.index].user_data;
-        self.loop.end(handle.index);
-    }
-    _ = self.engine.apply(rotor.Event.success(user_data, 0), self.now_ns);
+    try world_module.fire_timer(self);
 }

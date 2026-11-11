@@ -222,7 +222,7 @@ test "a second pass waits for a closed slot whose records the loop still holds" 
     _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.connections[0];
     try until_hello_in_flight(&rig);
-    reset_first(&rig);
+    try reset_first(&rig);
     // The second pass asked in that event's drive, and found the slot closed and borrowed.
     try testing.expect(connection.state == .closed and connection.borrowed());
     try testing.expectEqual(@as(u16, 1), rig.engine.tcp_waiters);
@@ -252,9 +252,9 @@ test "a second pass waits for a closed slot whose query's records the loop still
     const lent = io.tls.pending(&rig.engine, 0, connection.queue.first().?.end);
     var sealed: [io.limits.tls_records_out_bytes_max]u8 = undefined;
     @memcpy(sealed[0..lent.len], lent);
-    reset_first(&rig);
+    try reset_first(&rig);
     // The loop holds the send's event back, as a slow send's end comes late.
-    const send = @TypeOf(rig.engine).user_data(.tcp_send, handle.index);
+    const send = tcp_test.send_of(&rig, handle.index);
     var held: ?rotor.Event = null;
     for (0..fixtures.until_rounds_max) |_| {
         if (connection.state == .handshaking) break;
@@ -301,9 +301,8 @@ fn until_hello_in_flight(rig: anytype) !void {
 }
 
 /// The peer resets the first slot's connection.
-fn reset_first(rig: anytype) void {
-    const receive = tcp.user_data_of(&rig.engine, .tcp_receive, 0);
-    _ = rig.engine.apply(rotor.Event.failure(receive, .connection_reset), rig.loop.now());
+fn reset_first(rig: anytype) !void {
+    try tcp_test.reset_receive(rig, 0);
 }
 
 /// One server and two connection slots over the failing session.
@@ -326,7 +325,7 @@ test "a second pass whose connect the loop refuses is told at once, though a slo
     _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     try until_hello_in_flight(&rig);
     rig.loop.refuse_submissions = true;
-    reset_first(&rig);
+    try reset_first(&rig);
     rig.loop.refuse_submissions = false;
     try testing.expect(rig.engine.connections[0].state == .closed and rig.engine.connections[0].borrowed());
     try testing.expectEqual(@as(u16, 0), rig.engine.tcp_waiters);
@@ -354,8 +353,8 @@ test "a second pass opens the other slot while a query's send reads the first on
     const lent = io.tls.pending(&rig.engine, 0, first.queue.first().?.end);
     var sealed: [io.limits.tls_records_out_bytes_max]u8 = undefined;
     @memcpy(sealed[0..lent.len], lent);
-    reset_first(&rig);
-    const send = @TypeOf(rig.engine).user_data(.tcp_send, handle.index);
+    try reset_first(&rig);
+    const send = tcp_test.send_of(&rig, handle.index);
     var held: ?rotor.Event = null;
     for (0..fixtures.until_rounds_max) |_| {
         if (rig.engine.held[handle.index] != null) break;

@@ -279,16 +279,16 @@ pub const Token = struct {
 /// The token of the operation the loop holds in `loop_slot`, read off the engine as it stands.
 pub fn token_of(world: anytype, loop_slot: u32) Token {
     const user_data = world.loop.slots[loop_slot].user_data;
-    const index: usize = @intCast(user_data & io.constants.index_mask);
-    return switch (world_module.kind_of(user_data).?) {
+    const index: usize = @intCast(world_module.origin_of(world, user_data).index);
+    return switch (world_module.kind_of(world, user_data).?) {
         .tcp_connect, .tcp_receive, .tls_send => |kind| connection_token(world, kind, index),
         .tcp_send => .{ .letter = 'S', .target = index, .current = send_is_current(world, index) },
         .udp_send => .{ .letter = 'D', .target = index, .current = send_is_current(world, index) },
         .udp_receive => blk: {
-            const found = world.engine.sockets.find(index);
+            const found = world.engine.sockets.find(@enumFromInt(@as(u32, @truncate(user_data))), index);
             const draining = found != null and found.?.which == .draining;
             const letter: u8 = if (draining) 'M' else 'L';
-            break :blk .{ .letter = letter, .target = index & io.constants.receive_index_mask, .current = found != null };
+            break :blk .{ .letter = letter, .target = index, .current = found != null };
         },
         .quic_send, .quic_receive => |kind| request_token(world, kind, index),
         .doh_connect, .doh_send, .doh_receive => |kind| link_token(world, kind, index),

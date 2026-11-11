@@ -16,6 +16,7 @@ const frame = @import("io_tcp_frame.zig");
 const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
 const tls_test = @import("io_tls_test.zig");
+const tcp_test = @import("io_tcp_test.zig");
 const Rig = sim_test.Rig;
 const question = sim_test.question;
 const endpoint_of = sim_test.endpoint_of;
@@ -152,7 +153,7 @@ test "a chunk that ends a message and starts the next keeps the connection up" {
     std.mem.writeInt(u16, bytes[prefix + fixtures.tiny_message_bytes ..][0..prefix], fixtures.next_message_bytes, .big);
     try testing.expect(rig.loop.network().write_stream(connection.descriptor.?, &bytes, rig.loop.now()));
     // The seed makes the twin give all of the octets as one chunk.
-    const receive = tcp.user_data_of(&rig.engine, .tcp_receive, 0);
+    const receive = tcp_test.in_flight(&rig, tcp.origin_of(&rig.engine, .tcp_receive, 0)).?;
     const count = try sim_test.tick_for(&rig.loop, &rig.events, fixtures.channel_read_ns);
     for (rig.events[0..count]) |event| {
         if (event.user_data == receive) try testing.expectEqual(@as(u32, bytes.len), try event.outcome());

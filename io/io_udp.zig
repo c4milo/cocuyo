@@ -9,7 +9,8 @@ const core = @import("core");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
-const Kind = @import("io.zig").Kind;
+const operations = @import("io_operations.zig");
+const OperationId = @import("io_interface.zig").OperationId;
 
 pub const Socket = struct {
     open: bool = false,
@@ -18,11 +19,11 @@ pub const Socket = struct {
     /// Whether its receive is armed. False when the loop refused the last arming, which the next
     /// drive asks for again (docs/design.md §19 step 13, the datagram's rule 1).
     receiving: bool = false,
+    /// The id of the receive this socket armed last. The end of a receive that a replaced socket
+    /// left behind carries another id, and there is nothing to do about it.
+    receive_id: ?OperationId = null,
     /// Queries sent from this port, for `Config.udp_queries_per_port`.
     sent: u32 = 0,
-    /// Which receive this socket has armed, out of the table's count. The end of a receive a
-    /// replaced socket left behind carries another, and there is nothing to do about it.
-    armed_generation: u32 = 0,
     /// Which opening of a socket this is, out of the table's count: what a lookup's query
     /// remembers of the socket it left from, so a draining socket knows what it is still owed.
     epoch: u32 = 0,
@@ -45,21 +46,20 @@ pub const Sockets = struct {
     count: u8,
     /// Where the next port comes from: the seed's stream, so a run is a run.
     word: u64 = 0,
-    /// Names every receive this table has ever armed, apart. It outlives the sockets, because
-    /// what it tells apart is a receive from a socket that is gone (`reinit`, a port replaced).
-    /// Thirty-two bits, so a receive left behind cannot come back to a count that wrapped.
-    next_generation: u32 = 0,
-    /// Names every socket this table has opened, apart, for the same reason.
+    /// Names every socket this table has opened, apart. It outlives the sockets, because what it
+    /// tells apart is a query from a socket that is gone (`reinit`, a port replaced).
     next_epoch: u32 = 0,
     /// The datagram group every receive takes its buffers from, which the loop reserved for the
     /// engine (rotor decision 29).
     group: rotor.BufferGroup = undefined,
 
-    /// Opens a socket per server and starts its receive. A port already in use is not a reason
-    /// to fail: the kernel picks another.
-    pub fn open(self: *Sockets, loop: *rotor.Loop, config: *const cocuyo.Config, seed: u64, tag: u16, group: rotor.BufferGroup) error{ SocketFailed, ReceiveFailed }!void {
-        // The generation counter is not reset: it tells a receive from one a socket that is
-        // gone left behind, and `reinit` is exactly when there are some.
+    /// Opens a socket per server of the engine's configuration and starts its receive. A port
+    /// already in use is not a reason to fail: the kernel picks another.
+    pub fn open(self: *Sockets, engine: anytype, seed: u64) error{ SocketFailed, ReceiveFailed }!void {
+        assert(self == &engine.sockets);
+        const config = engine.config;
+        // The epoch counter is not reset: it tells a query from one that a socket that is gone
+        // sent, and `reinit` is exactly when there are some.
         self.items = @splat(.{});
         self.draining = @splat(.{});
         // A TLS configuration opens no UDP socket: every query goes on a stream (docs/design.md
@@ -67,10 +67,10 @@ pub const Sockets = struct {
         // socket is its own (§24, request rule 1).
         self.count = if (config.encrypted()) 0 else @intCast(config.servers.len);
         self.word = seed;
-        self.group = group;
+        self.group = engine.group.id;
         for (config.servers[0..self.count], 0..) |*server, index| {
             self.items[index] = try self.open_port(config, server.endpoint.address.family);
-            try self.arm(loop, &self.items[index], @intCast(index), tag);
+            try self.arm(engine, &self.items[index], @intCast(index));
         }
     }
 
@@ -123,12 +123,13 @@ pub const Sockets = struct {
     /// query from now on, and the old one drains, keeping its receive for the answers to its
     /// queries (the datagram's rule 4). The new socket is opened first, so when it cannot be the
     /// old one stays in use and the next drive tries again.
-    pub fn rotate(self: *Sockets, loop: *rotor.Loop, config: *const cocuyo.Config, index: u8, tag: u16) error{SocketFailed}!void {
+    pub fn rotate(self: *Sockets, engine: anytype, index: u8) error{SocketFailed}!void {
         assert(self.is_due(index));
+        const config = engine.config;
         const fresh = try self.open_port(config, config.servers[index].endpoint.address.family);
         self.draining[index] = self.items[index];
         self.items[index] = fresh;
-        self.arm(loop, &self.items[index], index, tag) catch {};
+        self.arm(engine, &self.items[index], index) catch {};
     }
 
     /// Closes server `index`'s draining socket: nothing is owed on it any more.
@@ -143,58 +144,45 @@ pub const Sockets = struct {
 
     /// Before the first `open`, when nothing is in flight and the struct holds whatever the
     /// caller's memory held.
-    pub fn reset_generation(self: *Sockets) void {
-        self.next_generation = 0;
+    pub fn reset_epoch(self: *Sockets) void {
         self.next_epoch = 0;
     }
 
     /// What a drive does last for server `index`: a receive armed on each of its sockets that
     /// has none. What the moment refuses is asked for again at the next drive (the datagram's
     /// rules 1 and 5).
-    pub fn tend(self: *Sockets, loop: *rotor.Loop, index: u8, tag: u16) void {
+    pub fn tend(self: *Sockets, engine: anytype, index: u8) void {
         assert(index < self.count);
-        if (!self.items[index].receiving) self.arm(loop, &self.items[index], index, tag) catch {};
+        if (!self.items[index].receiving) self.arm(engine, &self.items[index], index) catch {};
         const draining = &self.draining[index];
-        if (draining.open and !draining.receiving) self.arm(loop, draining, index, tag) catch {};
+        if (draining.open and !draining.receiving) self.arm(engine, draining, index) catch {};
     }
 
     /// Arms the multishot receive of one of server `index`'s sockets, which every datagram to
-    /// that socket arrives on.
-    pub fn arm(self: *Sockets, loop: *rotor.Loop, socket: *Socket, index: u8, tag: u16) error{ReceiveFailed}!void {
+    /// that socket arrives on. Its origin names the server, and the socket keeps its id.
+    pub fn arm(self: *Sockets, engine: anytype, socket: *Socket, index: u8) error{ReceiveFailed}!void {
         assert(index < self.count);
         assert(socket.open);
-        self.next_generation +%= 1;
-        socket.armed_generation = self.next_generation;
-        const operation: rotor.Operation = .receive_from(
-            user_data(tag, .udp_receive, receive_index(index, socket.armed_generation)),
-            socket.descriptor,
-            self.group,
-        );
-        var handles: [1]rotor.Handle = undefined;
-        if (loop.submit(&.{operation}, &handles) != 1) {
+        const operation: rotor.Operation = .receive_from(undefined, socket.descriptor, self.group);
+        const submitted = operations.submit(engine, .{ .kind = .udp_receive, .index = index }, operation) orelse {
             socket.receiving = false;
             return error.ReceiveFailed;
-        }
-        socket.receive = handles[0];
+        };
+        socket.receive_id = submitted.id;
+        socket.receive = submitted.handle;
         socket.receiving = true;
     }
 
-    /// The `user_data` index of a receive: the server it is on, and which receive on it.
-    fn receive_index(index: u8, generation: u32) usize {
-        return @as(usize, index) | (@as(usize, generation) << constants.receive_generation_shift);
-    }
-
-    /// The socket a receive event names, and its server, or null for a receive a socket that is
-    /// gone left behind: the generation has moved on, and the socket it belonged to is closed.
-    pub fn find(self: *Sockets, index: usize) ?struct { server: u8, socket: *Socket, which: Which } {
-        const server: u8 = @intCast(index & constants.receive_index_mask);
-        if (server >= self.count) return null;
-        const generation: u32 = @truncate(index >> constants.receive_generation_shift);
-        if (self.items[server].armed_generation == generation) {
+    /// The socket that the receive `id` on server `index` names, or null for a receive that a
+    /// socket that is gone left behind: no socket of the server keeps its id.
+    pub fn find(self: *Sockets, id: OperationId, index: usize) ?struct { server: u8, socket: *Socket, which: Which } {
+        if (index >= self.count) return null;
+        const server: u8 = @intCast(index);
+        if (self.items[server].receive_id == id) {
             return .{ .server = server, .socket = &self.items[server], .which = .current };
         }
         const draining = &self.draining[server];
-        if (draining.open and draining.armed_generation == generation) {
+        if (draining.open and draining.receive_id == id) {
             return .{ .server = server, .socket = draining, .which = .draining };
         }
         return null;
@@ -232,10 +220,6 @@ pub const Sockets = struct {
         }
     }
 };
-
-fn user_data(tag: u16, kind: Kind, index: usize) u64 {
-    return (@as(u64, tag) << constants.tag_shift) | (@as(u64, @intFromEnum(kind)) << constants.kind_shift) | index;
-}
 
 /// A port in the Dynamic range from one word of the seed (RFC 6335 §6).
 fn port_from(word: u64) u16 {

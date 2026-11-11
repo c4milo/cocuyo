@@ -15,6 +15,7 @@ const perform = @import("sim_loop_perform.zig");
 const Operation = types.Operation;
 const Event = types.Event;
 const Handle = types.Handle;
+const EventCode = types.EventCode;
 
 pub const InitError = error{ SystemResources, Unexpected };
 pub const TickError = error{Unexpected};
@@ -234,6 +235,17 @@ pub const Loop = struct {
 
     /// Ends an operation with `Canceled`, unless it ended already (rotor decision 5, rule 2).
     pub fn cancel(loop: *Loop, handle: Handle) void {
+        loop.end_now(handle, .{ .failure = .canceled });
+    }
+
+    /// How `end_now` ends an operation: with a failure's code, or with zero octets, which is how
+    /// a peer's close ends a receive.
+    pub const Ending = union(enum) { failure: EventCode, closed };
+
+    /// Ends an operation now, unless it ended already, as a cancel ends it. A test ends a receive
+    /// so to stand for a peer's reset or close, since the twin's own connections never end so. The
+    /// final event is the operation's own.
+    pub fn end_now(loop: *Loop, handle: Handle, ending: Ending) void {
         if (handle.is_none()) return;
         const slot = &loop.slots[handle.index];
         if (!slot.live or slot.generation != handle.generation or slot.cancelling) return;
@@ -241,7 +253,23 @@ pub const Loop = struct {
         slot.cancelling = true;
         if (loop.manual) return;
         perform.withdraw(loop, handle.index);
-        loop.queue(handle.index, Event.failure(slot.user_data, .canceled), loop.now_ns, true);
+        const event = switch (ending) {
+            .failure => |code| Event.failure(slot.user_data, code),
+            .closed => Event.success(slot.user_data, 0),
+        };
+        loop.queue(handle.index, event, loop.now_ns, true);
+    }
+
+    /// Ends an operation now as `end_now` does, and hands back its final event at once, ahead of
+    /// each other event due now. A test delivers a peer's reset so, before the end of a send that
+    /// the same instant holds. Null when the operation ended already.
+    pub fn end_first(loop: *Loop, handle: Handle, ending: Ending) ?Event {
+        assert(!loop.manual);
+        const count = loop.pending_count;
+        loop.end_now(handle, ending);
+        if (loop.pending_count == count) return null;
+        assert(loop.pending[loop.pending_count - 1].slot == handle.index);
+        return loop.take_pending(loop.pending_count - 1);
     }
 
     /// Frees an operation the caller ended, in manual mode: what delivering its final event does

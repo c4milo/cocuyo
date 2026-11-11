@@ -323,7 +323,7 @@ test "a query send that fails ends its connection, and every query on it gives i
     const handles = try two_queued(&rig, 21);
     // The twin's sends do not fail, so the first query's is made to: the stream is broken.
     const count = try sim_test.tick_for(&rig.loop, &rig.events, fixtures.wait_ns);
-    const sent = @TypeOf(rig.engine).user_data(.tcp_send, handles[0].index);
+    const sent = send_of(&rig, handles[0].index);
     var failed = false;
     for (rig.events[0..count]) |*event| {
         if (event.user_data != sent) continue;
@@ -344,8 +344,7 @@ test "a connection that fails mid-send keeps that send's buffer until its event,
     var rig: Rig = .{};
     const handles = try two_queued(&rig, 22);
     // The peer resets the connection while the first query is on its way out.
-    const receive = tcp.user_data_of(&rig.engine, .tcp_receive, 0);
-    _ = rig.engine.apply(rotor.Event.failure(receive, .connection_reset), rig.loop.now());
+    try reset_receive(&rig, 0);
     try expect_failed_over(&rig);
     // The loop still holds the first query's bytes; the second's are the engine's again.
     try testing.expect(rig.engine.send_in_flight[handles[0].index]);
@@ -374,11 +373,10 @@ test "a new opening in the slot of a connection that failed mid-send writes none
     const length = rig.engine.send_lengths[first.index];
     var lent: [cocuyo.limits.query_bytes_max]u8 = undefined;
     @memcpy(lent[0..length], rig.engine.send_buffers[first.index][0..length]);
-    const receive = tcp.user_data_of(&rig.engine, .tcp_receive, 0);
-    _ = rig.engine.apply(rotor.Event.failure(receive, .connection_reset), rig.loop.now());
+    try reset_receive(&rig, 0);
     try testing.expect(connection.state == .connecting and connection.server == 1);
     // The loop holds the send's event back, as a slow send's end comes late.
-    const send = @TypeOf(rig.engine).user_data(.tcp_send, first.index);
+    const send = send_of(&rig, first.index);
     var held: ?rotor.Event = null;
     for (0..fixtures.until_rounds_max) |_| {
         if (rig.engine.held[first.index] != null) break;
@@ -394,6 +392,36 @@ test "a new opening in the slot of a connection that failed mid-send writes none
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
+}
+
+/// The `user_data` of the send in flight for the lookup in slot `index`. The engine keeps no id of a
+/// send, so the test reads it from the table.
+pub fn send_of(rig: anytype, index: usize) u64 {
+    return in_flight(rig, .{ .kind = .tcp_send, .index = index }).?;
+}
+
+/// The `user_data` of the operation in flight for `origin`, or null for none.
+pub fn in_flight(rig: anytype, origin: io.Origin) ?u64 {
+    const id = rig.engine.operations.find(origin) orelse return null;
+    return @TypeOf(rig.engine).user_data(id);
+}
+
+/// Ends connection `at`'s receive as a peer's reset ends it, and applies that end.
+pub fn reset_receive(rig: anytype, at: u8) !void {
+    try end_receive(rig, at, .{ .failure = .connection_reset });
+}
+
+/// Ends connection `at`'s receive as a peer's close ends it, with zero octets, and applies that end.
+pub fn close_receive(rig: anytype, at: u8) !void {
+    try end_receive(rig, at, .closed);
+}
+
+/// Ends connection `at`'s receive so, and applies that final event alone. The table holds its id
+/// until then (docs/design.md §26 step 4.1). An event due at the same instant stays with the loop.
+fn end_receive(rig: anytype, at: u8, ending: rotor.Loop.Ending) !void {
+    const receive = rig.engine.connections[at].handle.?;
+    const event = rig.loop.end_first(receive, ending) orelse return error.ReceiveEnded;
+    _ = rig.engine.apply(event, rig.loop.now());
 }
 
 /// One short wait of the rig, each event applied but the one whose `user_data` is `send`, which
@@ -467,9 +495,6 @@ test "a connection's incarnation wraps at the last of its thirty-two bits, and t
     const event: rotor.Event = .{ .user_data = 0, .result = 0, .flags = .{} };
     try testing.expectEqual(@as(?u8, null), tcp.current_of(&rig.engine, before, event));
     try testing.expectEqual(@as(?u8, 0), tcp.current_of(&rig.engine, 0, event));
-    // That incarnation above the last slot a connection may have is the largest index a
-    // `user_data` holds.
-    try testing.expectEqual(io.constants.index_mask, before | io.constants.tcp_slot_mask);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }

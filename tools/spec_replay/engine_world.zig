@@ -10,7 +10,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
-const core = @import("core");
 const rotor = @import("rotor");
 const io = @import("io");
 const lookup_text = @import("replay.zig");
@@ -18,7 +17,7 @@ const fixtures = @import("fixtures.zig");
 const text_module = @import("engine_text.zig");
 const quic_world = @import("engine_world_quic.zig");
 const channel_world = @import("engine_world_channel.zig");
-const earlier_world = @import("engine_world_earlier.zig");
+const message_world = @import("engine_world_message.zig");
 
 /// The seed every engine of the replay starts from; the model abstracts the entropy away.
 const seed = 0x5eed_e791;
@@ -188,7 +187,7 @@ fn instant(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .s
     if (earlier or std.mem.eql(u8, name, "message")) {
         const slot = try number(parts.next());
         const reply = std.meta.stringToEnum(fixtures.Reply, parts.next() orelse "") orelse return error.Malformed;
-        return message(self, op, slot, reply, earlier);
+        return message_world.message(self, op, slot, reply, earlier);
     }
     if (std.mem.eql(u8, name, "tls")) return tls_step(self, op, parts.next() orelse "");
     return error.Malformed;
@@ -261,7 +260,7 @@ pub fn operation(self: anytype, name: []const u8) Error!u32 {
 pub fn known_operations(self: anytype, out: []u32) usize {
     var count: usize = 0;
     for (self.loop.slots[0..], 0..) |*slot, index| {
-        if (!slot.live or kind_of(slot.user_data) == null) continue;
+        if (!slot.live or kind_of(self, slot.user_data) == null) continue;
         out[count] = @intCast(index);
         count += 1;
     }
@@ -278,7 +277,7 @@ pub fn known_operations(self: anytype, out: []u32) usize {
 fn finish(self: anytype, op: []const u8, outcome: Outcome) Error!void {
     const slot = try operation(self, op);
     const user_data = self.loop.slots[slot].user_data;
-    const kind = kind_of(user_data).?;
+    const kind = kind_of(self, user_data).?;
     var event = switch (outcome) {
         .ok => rotor.Event.success(user_data, moved(self, user_data, kind, false)),
         .short => rotor.Event.success(user_data, moved(self, user_data, kind, true)),
@@ -299,7 +298,7 @@ fn finish(self: anytype, op: []const u8, outcome: Outcome) Error!void {
 /// is at least one and fewer than all, since a query or a record is longer than two octets. A
 /// send whose connection is gone, and every other operation, reports none.
 fn moved(self: anytype, user_data: u64, kind: io.Kind, short: bool) u32 {
-    const index: usize = @intCast(user_data & io.constants.index_mask);
+    const index: usize = @intCast(origin_of(self, user_data).index);
     const left = switch (kind) {
         .tcp_send => query_left(self, index),
         .tls_send => records_left(self, index),
@@ -341,7 +340,7 @@ fn head_left(self: anytype, connection: anytype, head: anytype) u32 {
 fn tls_step(self: anytype, op: []const u8, name: []const u8) Error!void {
     const loop_slot = try operation(self, op);
     const user_data = self.loop.slots[loop_slot].user_data;
-    if (kind_of(user_data) != .tcp_receive) return error.Malformed;
+    if (kind_of(self, user_data) != .tcp_receive) return error.Malformed;
     const steps = [_]struct { name: []const u8, step: rotor.tls.Step }{
         .{ .name = "flight", .step = .flight },
         .{ .name = "done", .step = .done },
@@ -363,7 +362,7 @@ fn tls_step(self: anytype, op: []const u8, name: []const u8) Error!void {
 fn straggle(self: anytype, op: []const u8) Error!void {
     const slot = try operation(self, op);
     const user_data = self.loop.slots[slot].user_data;
-    const kind = kind_of(user_data).?;
+    const kind = kind_of(self, user_data).?;
     if (!receives(kind)) return error.Malformed;
     const event = try carrying(self, user_data, kind, true);
     _ = self.engine.apply(event, self.now_ns);
@@ -371,7 +370,7 @@ fn straggle(self: anytype, op: []const u8) Error!void {
 
 /// An event that carries one octet in a buffer of its receive's group.
 fn carrying(self: anytype, user_data: u64, kind: io.Kind, more: bool) Error!rotor.Event {
-    const target = (user_data & io.constants.index_mask) & io.constants.quic_server_mask;
+    const target = origin_of(self, user_data).index & io.constants.quic_server_mask;
     const tcp_link = kind == .doh_receive and target % 2 == 1;
     const stream = kind == .tcp_receive or tcp_link;
     const group_id: rotor.BufferGroup = if (stream) self.engine.tcp_group.id else self.engine.group.id;
@@ -387,67 +386,12 @@ fn carrying(self: anytype, user_data: u64, kind: io.Kind, more: bool) Error!roto
     return event;
 }
 
-/// A message on the receive `op` names by its token, for the lookup in `slot`: on a stream, one whole
-/// frame, length and all, in one buffer of the stream's group (RFC 7766 §8); on a socket, one
-/// datagram from its server, laid out in the datagram group as rotor lays one out.
-fn message(self: anytype, op: []const u8, slot: usize, reply: fixtures.Reply, earlier: bool) Error!void {
-    const loop_slot = try operation(self, op);
-    const user_data = self.loop.slots[loop_slot].user_data;
-    const current = self.engine.resolver.lookup_of(self.engine.handles[slot]);
-    // An earlier try's message is built from that try (`engine_world_earlier.zig`).
-    var viewed: cocuyo.Lookup = undefined;
-    if (earlier) viewed = try earlier_world.view(self, current, kind_of(user_data) orelse return error.Malformed, user_data);
-    const lookup = if (earlier) &viewed else current;
-    var body_buffer: [io.limits.buffer_bytes_max]u8 = undefined;
-    const room = rotor.datagram.payload_capacity(io.limits.buffer_bytes_max, self.loop.group_options);
-    const body = if (reply == .cut) fixtures.build_cut(lookup, room, &body_buffer) else fixtures.build(lookup, reply, &body_buffer);
-    const kind = kind_of(user_data) orelse return error.Malformed;
-    // Only a datagram comes cut, and it comes with the kernel's mark (the datagram's rule 6).
-    if (reply == .cut and kind != .udp_receive) return error.Malformed;
-    const group_id: rotor.BufferGroup = switch (kind) {
-        .tcp_receive => self.engine.tcp_group.id,
-        .udp_receive => self.engine.group.id,
-        else => return error.Malformed,
-    };
-    const buffer_id = self.loop.groups[@intFromEnum(group_id)].take() orelse return error.NoBuffer;
-    const buffer = self.loop.provided_buffer(group_id, buffer_id);
-    var length: u32 = undefined;
-    if (kind == .tcp_receive) {
-        length = stream_frame(self, body, buffer);
-    } else {
-        const server: u8 = @intCast((user_data & io.constants.index_mask) & io.constants.receive_index_mask);
-        const peer = rotor.Network.server_address(server);
-        length = rotor.buffers.write_delivery(buffer, self.loop.group_options, &peer, body);
-        const metadata = buffer[rotor.constants.prefix_head_bytes..][0..@sizeOf(rotor.datagram.Received)];
-        const received: *rotor.datagram.Received = @ptrCast(@alignCast(metadata));
-        received.flags.truncated = reply == .cut;
-    }
-    var event = rotor.Event.success(user_data, length);
-    event.flags = .{ .buffer = true, .more = true, .buffer_id = buffer_id };
-    _ = self.engine.apply(event, self.now_ns);
-}
-
-/// One whole frame, length and all (RFC 7766 §8), and over TLS in a data record of its own
-/// (RFC 7858 §3.3).
-fn stream_frame(self: anytype, body: []const u8, buffer: []u8) u32 {
-    const prefix = core.constants.tcp_prefix_bytes;
-    var frame: [512 + prefix]u8 = undefined;
-    std.mem.writeInt(u16, frame[0..prefix], @intCast(body.len), .big);
-    @memcpy(frame[prefix..][0..body.len], body);
-    const framed = frame[0 .. prefix + body.len];
-    if (!self.config.uses_tls()) {
-        @memcpy(buffer[0..framed.len], framed);
-        return @intCast(framed.len);
-    }
-    return @intCast(rotor.tls.write_record(rotor.constants.tls_content_application, framed, buffer));
-}
-
 /// A timer the engine moved away from ends as rotor ends it, `Canceled`, and says
 /// nothing: the model has no timer.
 fn end_cancelled_timers(self: anytype) void {
     for (self.loop.slots[0..], 0..) |*slot, index| {
         if (!slot.live or !slot.cancelling) continue;
-        if (kind_of_any(slot.user_data) != .timer) continue;
+        if (origin_of(self, slot.user_data).kind != .timer) continue;
         const event = rotor.Event.failure(slot.user_data, .canceled);
         self.loop.end(@intCast(index));
         _ = self.engine.apply(event, self.now_ns);
@@ -463,13 +407,34 @@ pub fn number(token: ?[]const u8) Error!usize {
     return std.fmt.parseInt(usize, token orelse return error.Malformed, 10) catch error.Malformed;
 }
 
-fn kind_of_any(user_data: u64) io.Kind {
-    return @enumFromInt(@as(u8, @truncate(user_data >> io.constants.kind_shift)));
+/// Fires the engine's timer, as the model's step says that a deadline came. The model has no timer,
+/// so the replay fires the engine's own. With none armed, because no deadline was due or the loop
+/// refused the timer, the replay gives the engine a timer's id now and fires that. The engine takes
+/// the fire of its current timer alone, and the table holds each id that it takes (docs/design.md
+/// §26 step 4.1).
+pub fn fire_timer(self: anytype) Error!void {
+    const user_data = if (self.engine.timer_handle) |handle| armed: {
+        const armed = self.loop.slots[handle.index].user_data;
+        self.loop.end(handle.index);
+        break :armed armed;
+    } else given: {
+        const id = self.engine.operations.take(.{ .kind = .timer, .index = 0 }) orelse return error.Full;
+        self.engine.timer_id = id;
+        break :given @TypeOf(self.engine).user_data(id);
+    };
+    _ = self.engine.apply(rotor.Event.success(user_data, 0), self.now_ns);
+}
+
+/// What the engine's operation of `user_data` is for. The engine holds the operation's id until
+/// it applies the operation's final event, so a replay reads it while the operation is live
+/// (docs/design.md §26 step 4.1).
+pub fn origin_of(self: anytype, user_data: u64) io.Origin {
+    return self.engine.operations.origin_of(@enumFromInt(@as(u32, @truncate(user_data))));
 }
 
 /// The kind of an operation the model knows, or null for the timer, which it does not.
-pub fn kind_of(user_data: u64) ?io.Kind {
-    const kind = kind_of_any(user_data);
+pub fn kind_of(self: anytype, user_data: u64) ?io.Kind {
+    const kind = origin_of(self, user_data).kind;
     return switch (kind) {
         .tcp_connect, .tcp_send, .tcp_receive, .udp_send, .udp_receive, .tls_send => kind,
         // The model's `qsend` and `qrecv` (EngineRequest.tla).

@@ -8,6 +8,7 @@ const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const udp = @import("io_udp.zig");
 const connection_module = @import("io_request_connection.zig");
+const operations = @import("io_operations.zig");
 
 /// Connection by connection: a receive armed on each socket that has none, the streams the
 /// server's credit now allows, and the datagram the transport owes sent when the buffer is back.
@@ -28,10 +29,9 @@ pub fn arm(self: anytype, server: u8) void {
     const connection = &self.quic.connections[server];
     assert(connection.receive == null);
     const descriptor = connection.descriptor orelse return;
-    const user_data = connection_module.user_data_of(self, .quic_receive, server);
-    const operation: rotor.Operation = .receive_from(user_data, descriptor, self.group.id);
-    var handles: [1]rotor.Handle = undefined;
-    if (self.loop.submit(&.{operation}, &handles) == 1) connection.receive = handles[0];
+    const origin = connection_module.origin_of(self, .quic_receive, server);
+    const operation: rotor.Operation = .receive_from(undefined, descriptor, self.group.id);
+    if (operations.submit(self, origin, operation)) |submitted| connection.receive = submitted.handle;
 }
 
 /// Sends the next datagram the connection owes, when the slot's buffer is not lent: the one the
@@ -44,14 +44,14 @@ fn send(self: anytype, server: u8, now_ns: u64) void {
     if (connection.made == 0) return;
     slot.outbound = udp.outbound_to(connection_module.endpoint_of(self, server));
     const operation: rotor.Operation = .{
-        .user_data = connection_module.user_data_of(self, .quic_send, server),
+        .user_data = undefined,
         .kind = .{ .send_to = .{
             .socket = connection.descriptor.?,
             .buffer = .{ .bytes = slot.bytes[0..connection.made] },
             .to = &slot.outbound,
         } },
     };
-    if (self.loop.submit(&.{operation}, &.{}) != 1) return;
+    if (operations.submit(self, connection_module.origin_of(self, .quic_send, server), operation) == null) return;
     slot.lent = true;
     connection.made = 0;
 }

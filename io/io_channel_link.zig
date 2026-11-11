@@ -20,8 +20,9 @@ const constants = @import("constants.zig");
 const udp = @import("io_udp.zig");
 const tls = @import("io_tls.zig");
 const channel_module = @import("io_channel.zig");
+const operations = @import("io_operations.zig");
 
-/// The link a `user_data` index names: its server, which link, and its opening.
+/// The link an origin's index names: its server, which link, and its opening.
 const Named = struct { server: u8, at: u1, incarnation: u32 };
 
 fn named(index: usize) Named {
@@ -33,11 +34,11 @@ fn named(index: usize) Named {
     };
 }
 
-/// The `user_data` of an operation on a link: its server and which link, and its opening.
-fn user_data_of(self: anytype, kind: anytype, server: u8, at: u1) u64 {
+/// The origin of an operation on a link: its server and which link, and its opening.
+fn origin_of(self: anytype, kind: @import("io.zig").Kind, server: u8, at: u1) operations.Origin {
     const link = &self.doh.slots[server].links[at];
     const index: u64 = (@as(u64, link.incarnation) << constants.quic_incarnation_shift) | (@as(u64, server) << 1) | at;
-    return @TypeOf(self.*).user_data(kind, index);
+    return .{ .kind = kind, .index = index };
 }
 
 // Opening (rules 19 and 23, request rule 14).
@@ -90,10 +91,10 @@ fn connect(self: anytype, server: u8, now_ns: u64) void {
     begin(state, descriptor);
     state.state = .connecting;
     slot.address = udp.address_of(state.endpoint);
-    const operation: rotor.Operation = .connect(user_data_of(self, .doh_connect, server, at), descriptor, &slot.address);
-    var handles: [1]rotor.Handle = undefined;
-    if (self.loop.submit(&.{operation}, &handles) != 1) return ended(self, server, at, now_ns);
-    state.connect = handles[0];
+    const operation: rotor.Operation = .connect(undefined, descriptor, &slot.address);
+    const submitted = operations.submit(self, origin_of(self, .doh_connect, server, at), operation) orelse
+        return ended(self, server, at, now_ns);
+    state.connect = submitted.handle;
     slot.connecting = true;
 }
 
@@ -212,13 +213,13 @@ fn arm(self: anytype, server: u8, at: u1) void {
     const state = &self.doh.slots[server].links[at];
     assert(state.receive == null);
     const descriptor = state.descriptor orelse return;
-    const user_data = user_data_of(self, .doh_receive, server, at);
     const operation: rotor.Operation = if (at == @intFromEnum(tcp_link(self)))
-        .receive_group(user_data, descriptor, self.tcp_group.id)
+        .receive_group(undefined, descriptor, self.tcp_group.id)
     else
-        .receive_from(user_data, descriptor, self.group.id);
-    var handles: [1]rotor.Handle = undefined;
-    if (self.loop.submit(&.{operation}, &handles) == 1) state.receive = handles[0];
+        .receive_from(undefined, descriptor, self.group.id);
+    if (operations.submit(self, origin_of(self, .doh_receive, server, at), operation)) |submitted| {
+        state.receive = submitted.handle;
+    }
 }
 
 /// Sends what a link owes, when its buffer is not lent: what the loop refused before, the rest of
@@ -235,28 +236,26 @@ fn send(self: anytype, server: u8, at: u1, now_ns: u64) void {
     }
     if (state.made == 0) return;
     assert(state.sent < state.made);
-    const user_data = user_data_of(self, .doh_send, server, at);
     const operation: rotor.Operation = if (stream)
-        .send(user_data, state.descriptor.?, slot.bytes[state.sent..state.made])
+        .send(undefined, state.descriptor.?, slot.bytes[state.sent..state.made])
     else
-        datagram_to(self, server, at, user_data);
-    var handles: [1]rotor.Handle = undefined;
-    if (self.loop.submit(&.{operation}, &handles) != 1) return;
+        datagram_to(self, server, at);
+    const submitted = operations.submit(self, origin_of(self, .doh_send, server, at), operation) orelse return;
     // Each end of the link cancels the send by this handle (docs/design.md §16 decision 55).
     assert(state.send_handle == null);
-    state.send_handle = handles[0];
+    state.send_handle = submitted.handle;
     slot.lent = true;
     slot.incarnation = state.incarnation;
     if (!stream) state.made = 0;
 }
 
 /// The datagram in a link's buffer, to where its channel asked it to go.
-fn datagram_to(self: anytype, server: u8, at: u1, user_data: u64) rotor.Operation {
+fn datagram_to(self: anytype, server: u8, at: u1) rotor.Operation {
     const state = &self.doh.slots[server].links[at];
     const slot = &self.doh.sends[server][at];
     slot.outbound = udp.outbound_to(state.endpoint);
     return .{
-        .user_data = user_data,
+        .user_data = undefined,
         .kind = .{ .send_to = .{
             .socket = state.descriptor.?,
             .buffer = .{ .bytes = slot.bytes[0..state.made] },

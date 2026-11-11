@@ -12023,6 +12023,9 @@ The engine asserts each rule that it can see.
   it builds a `Completion` from each `rotor.Event`, calls `complete`, and gives back each buffer.
 - An `open_datagram` and a `connect` open their sockets through `rotor.sync`, as the engine does
   today, so their completions come in the same pass.
+- A submit that the loop refuses stays with the adapter, which submits it again at its next pass.
+  So the driver never sees a refusal. A host that cannot do an operation completes it with
+  `failed`, and the driver takes that as it takes any other failure.
 - It runs on Rotor v0.10.0: `reserve_buffer_group` gives its groups, and `memory_bytes` takes a
   pointer. It uses no completion record, poller, task or `SharedLoop`, as colibri's adapter does
   not.
@@ -12034,7 +12037,8 @@ The engine asserts each rule that it can see.
 - A fake host in memory tests the rules of a host: one final completion for each operation, a
   completion for an id that is not held, `address_in_use`, a full `operations`, and `stop`.
 - The TLA+ model of the engine gains the open as an operation with a completion, and a socket that
-  is `opening`. A failed open replaces the model's `starved` state. The replays drive `.private`
+  is `opening`. A failed open replaces the model's `starved` state, and the model loses its
+  `jammed` state, because no host refuses an operation. The replays drive `.private`
   over the twin, as they drive the engine today.
 - The Lean model of §5 renames `wait` to `wait_until_ns`, and no theorem changes.
 - The examples run `.private`. A new example hosts the engine on a shared Rotor loop beside a timer
@@ -12053,7 +12057,26 @@ the code that it describes, because CI's `spec` job replays the model's walks ag
    replays. Done on 2026-11-11.
 3. Rotor v0.10.0: the twin takes its surface, and the engine reserves its buffer groups. Done on
    2026-11-11.
-4. The driver and the adapter: `turn`, `complete` and `.private` over the twin, the fake host's
-   tests, and the open as an operation in the TLA+ model, with its walks and its mutants.
-5. The surface: the renames, the module, the examples, the README and the consumer fixture.
+4. The driver and the adapter, in seven sub-steps. Each sub-step is one commit, and the gate
+   passes after each. Only sub-steps 3 and 5 change the model.
+   1. Operation ids. Each operation that the engine submits takes an `OperationId` from a table
+      of the operations in flight. The id is the low 32 bits of its `user_data`. `apply` routes
+      each event by the table. The generations of the timer and of the receives leave, because
+      an id tells a stale event from the current one.
+   2. Socket ids and the adapter. The engine names each socket by its `SocketId`, and each
+      handler takes a `*const Completion`. `io/rotor_host.zig` holds the descriptors and the
+      datagram group, calls `rotor.sync`, and builds each `Completion` from a `rotor.Event`.
+   3. No refused operation. A submit that the loop refuses stays with the adapter, which submits
+      it again at the next drive. The model loses its `jammed` state.
+   4. The stream's receive lends a chunk. A TCP `receive` reads into one chunk of the engine's
+      pool, in place of Rotor's group.
+   5. Opens and closes as operations. A socket opens through `open_datagram` or `connect`, and
+      closes through `close`. A failed open follows §17 question 125, and `init` opens nothing.
+      The model gains the open as an operation, and a failed open replaces `starved`.
+   6. `turn` and `complete`. The driver writes its operations into the caller's memory, and takes
+      each completion. The timer leaves. The adapter calls `turn` and `complete` in place of
+      `drive` and `apply`.
+   7. The fake host. Tests in memory hold the driver to the rules of a host.
+5. The surface: `Engine(options, kind)`, in which `.private` owns its loop and adds `next`. Then
+   the renames, the module, the examples, the README and the consumer fixture.
 6. The release, with one message to each consumer that names each break.

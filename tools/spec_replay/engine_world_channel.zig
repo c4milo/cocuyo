@@ -44,13 +44,7 @@ pub fn step(self: anytype, parts: *std.mem.SplitIterator(u8, .scalar)) Error!voi
         else => named,
     };
     self.engine.doh.slots[server].channel.say(said, self.now_ns);
-    const Resolver = @TypeOf(self.engine);
-    var user_data = Resolver.user_data(.timer, self.engine.timer_generation);
-    if (self.engine.timer_handle) |handle| {
-        user_data = self.loop.slots[handle.index].user_data;
-        self.loop.end(handle.index);
-    }
-    _ = self.engine.apply(rotor.Event.success(user_data, 0), self.now_ns);
+    try world_module.fire_timer(self);
 }
 
 /// What is left of the octets a TCP link's send of opening `index` carries, if the opening is still
