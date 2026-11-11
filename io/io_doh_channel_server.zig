@@ -108,7 +108,7 @@ pub const Server = struct {
     pub fn init(self: *Server, script: Script, unix_seconds: u64, now_ns: u64) !void {
         self.* = .{ .script = script };
         self.config = .{ .tls = identity_values(script.tickets), .protocols = script.protocols };
-        try self.endpoint.init(&self.config, self.stream.random(), .{ .ns = now_ns, .unix_seconds = unix_seconds });
+        try self.endpoint.init(&self.config, self.stream.random(), .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns });
         // The endpoint names in ALPN the versions it serves. A server that names none has its
         // TCP configuration made again with the identity's empty list, which a test alone does.
         if (script.selects_none) try self.endpoint.tcp_tls.init(self.config.tls.?);
@@ -148,7 +148,9 @@ pub const Server = struct {
         switch (event) {
             .request => |request| self.answer(request, answerer),
             .writable => self.write_owed(),
-            .body, .trailers, .finished, .send, .close, .ended, .closed => {},
+            // The server reads each request whole before it answers, so colibri closes no
+            // write side early (its decision 160), and memory has no socket to shut down.
+            .body, .trailers, .finished, .send, .half_close, .close, .ended, .closed => {},
         }
     }
 

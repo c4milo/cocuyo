@@ -85,11 +85,12 @@ pub fn start(self: anytype, context: anytype) error{Failed}!void {
         .fallback_delay_ns = constants.fallback_delay_ns,
     };
     self.addresses = .{client.Address.of(context.endpoint.address.slice(), 0)};
-    self.channel.init(&self.memory, &self.channel_config, .{
+    const destination: client.Destination = .{
         .addresses = &self.addresses,
         .port = context.endpoint.port,
         .alternative = context.alternative,
-    }, self.pool.storage()) catch return error.Failed;
+    };
+    self.channel.init(&self.memory, &self.channel_config, &destination, self.pool.storage()) catch return error.Failed;
     self.started = true;
 }
 

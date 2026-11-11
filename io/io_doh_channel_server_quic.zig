@@ -49,7 +49,7 @@ pub const QuicServer = struct {
         self.* = .{ .script = script };
         // The endpoint names `h3` for its QUIC connections (RFC 9114 §3.1; colibri's decision 119).
         self.config = .{ .tls = tcp_server.identity_values(script.tickets) };
-        try self.endpoint.init(&self.config, self.stream.random(), .{ .ns = now_ns, .unix_seconds = unix_seconds });
+        try self.endpoint.init(&self.config, self.stream.random(), .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns });
     }
 
     /// Takes a datagram from `from`, and answers each request the endpoint reads.
@@ -88,7 +88,8 @@ pub const QuicServer = struct {
                 .request => |request| if (answerer) |given| self.answer(request, given),
                 .finished => |finished| self.free(finished.id),
                 .ended => |ended| self.forget(ended.connection),
-                .body, .trailers, .writable, .send, .close, .closed => {},
+                // A half close is of a TCP connection alone (colibri's decision 160).
+                .body, .trailers, .writable, .send, .half_close, .close, .closed => {},
             }
         }
     }

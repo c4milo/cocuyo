@@ -27,20 +27,20 @@
         // engine's DoH interface (decision 33). Never of the library in `src/`. Lazy, so a build
         // that asks for none of them does not resolve it.
         .colibri = .{
-            .url = "git+https://github.com/c4milo/colibri?ref=v0.15.0#de74e9c56ec7e6101fe6d4f982c87b8294075c50",
-            .hash = "colibri-0.10.0-Wo-AvlFGqAR_LUBCLNuroMe947lTb6fGON05K9JX8WZz",
+            .url = "git+https://github.com/c4milo/colibri?ref=v0.16.0#b604972414f4a68ab52ef613522729a53dfb05c1",
+            .hash = "colibri-0.10.0-Wo-AvjeCrgQ2CoLmDuqHSEUVGxXqumzISRmI1N-u-yKe",
             .lazy = true,
         },
         // stdx's `platform`, the probe that the DoT, DoQ and DoH examples read under the word
         // `cpu` (docs/design.md §16 decision 48, as amended). A dependency of those examples
         // alone. No module rooted in `src/` reaches stdx, and none rooted in `io/` reaches it but
         // through colibri. `zig build graph-check` holds both. Pinned at the commit that colibri
-        // v0.15.0 pins, so the probe's `Cpu` is the type colibri's `tls.Cpu` holds. Lazy, and
+        // v0.16.0 pins, so the probe's `Cpu` is the type colibri's `tls.Cpu` holds. Lazy, and
         // requested only when cocuyo is the root build, so a project depending on cocuyo never
         // fetches it.
         .stdx = .{
-            .url = "git+https://github.com/c4milo/stdx#0c0ba959bda1a0e318e9171d4542beae3df262cc",
-            .hash = "stdx-0.0.0-BD60tuF5NQByxf5nikkIoKXfpwr6OhHXuSP71hE5v0Ux",
+            .url = "git+https://github.com/c4milo/stdx#1d1b46f82fd09ae9703555eacab03bf8737dbecd",
+            .hash = "stdx-0.0.0-BD60tp9sOAC29iEwiUKXxXm64873d6D4J9lP5Q8uoM6G",
             .lazy = true,
         },
     },

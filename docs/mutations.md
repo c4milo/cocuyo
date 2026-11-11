@@ -12171,3 +12171,19 @@ the name leaves. `zig build mutations -- engine AM1` ran the row.
 | Id | Mutation | Caught by | Result |
 | --- | --- | --- | --- |
 | AM1 | the surface drops `limits.addresses_max` again | `zig build consumer-check` | `CAUGHT` |
+
+## The pin of colibri v0.16.0
+
+2026-11-11. colibri v0.16.0 carries chapulin v0.5.0, pins stdx `1d1b46f` and Rotor v0.10.0, and
+breaks four of cocuyo's call sites. `client.ConnectionPool.init` takes `*const
+client.Destination`, so the DoH channel passes the address of its destination. `server.Instant`
+is `server.Timestamp`, with the fields of cocuyo's `Timestamp`, so the two test servers build one.
+`server.Event` gains `half_close`, which the test servers do not act on. stdx moves to the commit
+colibri pins. Rotor stays at v0.9.0, because Rotor v0.10.0 changes the engine's interface to its
+loop, and that change waits for the owner's decision on the shared loop (c4milo/cocuyo#65). No
+check of cocuyo changed. SM4 names the consumer fixture's new hash, and `zig build mutations --
+engine SM4` ran it.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| SM4 | the consumer fixture pins colibri v0.11.0, where `build.zig.zon` pins v0.16.0 | `zig build consumer-check` | `CAUGHT` |
