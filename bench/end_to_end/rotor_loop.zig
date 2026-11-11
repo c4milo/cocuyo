@@ -29,7 +29,7 @@ const Resolver = io.Resolver(.{
 
 const loop_options: rotor.Loop.Options = .{ .operations = Resolver.loop_operations };
 
-var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
+var loop_memory: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment) = undefined;
 var engine: Resolver = undefined;
 /// The memory of the engine's cache, a slot for each of its lookups: the engine has the cache it
 /// is handed the memory of (docs/design.md §19 step 13), and the row of cache hits needs one.
@@ -46,7 +46,7 @@ pub fn run(port: u16, schedule: Schedule, total: u32, record: Record, names: Nam
     const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = cocuyo.Address.from_v4(constants.loopback_v4), .port = port } }};
     const config: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
     var loop: rotor.Loop = undefined;
-    try loop.init(&loop_memory, loop_options);
+    try loop.init(&loop_memory, &loop_options);
     defer loop.deinit();
     var events: [constants.events_max]rotor.Event = undefined;
     try engine.init(&loop, &config, cache_memory.slices(), constants.engine_seed, harness.now_ns());

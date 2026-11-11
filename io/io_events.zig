@@ -59,7 +59,7 @@ fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64
     // still deliver a datagram before its end (rotor decision 5, rule 2), and its buffer goes
     // back to the group (docs/design.md §19 step 13, the datagram's rules 2 and 3).
     const found = self.sockets.find(index) orelse {
-        if (event.flags.buffer) self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);
+        if (event.flags.buffer) self.loop.give_back_buffer(self.group.id, event.flags.buffer_id);
         return;
     };
     assert(found.server < cocuyo.limits.servers_max);
@@ -75,12 +75,12 @@ fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64
 /// longer than a buffer's room comes cut, and the kernel marks it: the table takes it as cut
 /// (docs/design.md §19 step 13, the datagram's rule 6).
 fn deliver(self: anytype, event: rotor.Event, now_ns: u64) void {
-    const delivery = self.loop.datagram(constants.group_id, event);
+    const delivery = self.loop.datagram(self.group.id, event);
     const from = udp.endpoint_of(delivery.from.peer);
     if (delivery.from.flags.truncated) {
         _ = self.resolver.on_datagram_cut(delivery.bytes, from, now_ns);
     } else {
         _ = self.resolver.on_datagram(delivery.bytes, from, now_ns);
     }
-    self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);
+    self.loop.give_back_buffer(self.group.id, event.flags.buffer_id);
 }

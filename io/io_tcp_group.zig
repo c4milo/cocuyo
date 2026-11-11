@@ -19,6 +19,8 @@ pub fn Group(comptime buffers: u16) type {
         /// reason the datagram group's own `memory` gives: the loader keeps page alignment and
         /// nothing more, and a type that claims more hands the optimizer a false premise.
         memory: [needed + alignment]u8,
+        /// The id the loop reserved for the group at `provide` (rotor decision 29).
+        id: rotor.BufferGroup,
 
         comptime {
             assert(@alignOf(Self) <= limits.storage_alignment_max);
@@ -31,10 +33,13 @@ pub fn Group(comptime buffers: u16) type {
             return @alignCast(self.memory[at - from ..][0..needed]);
         }
 
+        /// Reserves the group's id on the loop and gives the loop its chunks, as the datagram
+        /// group does (`io_udp.zig`).
         pub fn provide(self: *Self, loop: *rotor.Loop) error{ReceiveFailed}!void {
             const memory = ring(self);
             assert(@intFromPtr(memory.ptr) % alignment == 0);
-            loop.provide_buffers(constants.tcp_group_id, memory, buffers, limits.tcp_chunk_bytes_max) catch
+            self.id = loop.reserve_buffer_group() catch return error.ReceiveFailed;
+            loop.provide_buffers(self.id, memory, buffers, limits.tcp_chunk_bytes_max) catch
                 return error.ReceiveFailed;
         }
     };

@@ -27,11 +27,11 @@ const resolv_conf_path = "/etc/resolv.conf";
 /// The loop holds one send and one receive at a time, and `entries` is what the io_uring backend
 /// sizes its submission ring by.
 const loop_options: rotor.Loop.Options = .{ .operations = 4 };
-const loop_memory_bytes = rotor.Loop.memory_bytes(loop_options);
+const loop_memory_bytes = rotor.Loop.memory_bytes(&loop_options);
 
-/// The buffer group every datagram is delivered into. Each buffer holds rotor's own prefix and
-/// then the datagram, so it is sized past the payload cocuyo advertises in EDNS0.
-const group_id = 0;
+/// The buffer group every datagram is delivered into, whose id the loop reserves. Each buffer holds
+/// rotor's own prefix and then the datagram, so it is sized past the payload cocuyo advertises in
+/// EDNS0.
 const group_buffers = 4;
 const group: rotor.datagram.GroupOptions = .{};
 const buffer_bytes = 2048;
@@ -85,8 +85,9 @@ fn resolve(io: std.Io, name: []const u8, config: *const cocuyo.Config, seed: u64
     var group_memory: [rotor.buffers.group_bytes(group_buffers, buffer_bytes)]u8 align(rotor.buffers.group_alignment) = undefined;
 
     var loop: rotor.Loop = undefined;
-    try loop.init(&loop_memory, loop_options);
+    try loop.init(&loop_memory, &loop_options);
     defer loop.deinit();
+    const group_id = try loop.reserve_buffer_group();
     try loop.provide_datagram_buffers(group_id, &group_memory, group_buffers, buffer_bytes, group);
 
     // The port cocuyo suggests is entropy against a spoof (RFC 5452 §9.2). A port already in use
@@ -97,10 +98,10 @@ fn resolve(io: std.Io, name: []const u8, config: *const cocuyo.Config, seed: u64
 
     // One multishot receive covers the whole lookup: every retry's answer arrives on it.
     var handles: [1]rotor.Handle = undefined;
-    if (loop.submit(&.{receive_from(socket)}, &handles) != 1) return error.LoopFull;
+    if (loop.submit(&.{receive_from(socket, group_id)}, &handles) != 1) return error.LoopFull;
     defer end(&loop, handles[0]);
 
-    var driver: Driver = .{ .loop = &loop, .socket = socket, .clock = clock };
+    var driver: Driver = .{ .loop = &loop, .group = group_id, .socket = socket, .clock = clock };
     try driver.run(&lookup, name);
 }
 
@@ -108,6 +109,7 @@ fn resolve(io: std.Io, name: []const u8, config: *const cocuyo.Config, seed: u64
 /// a send completes (rotor decision 5, rule 3).
 const Driver = struct {
     loop: *rotor.Loop,
+    group: rotor.BufferGroup,
     socket: rotor.Descriptor,
     clock: Clock,
     outbound: rotor.datagram.Outbound = undefined,
@@ -188,18 +190,18 @@ const Driver = struct {
     fn receive(self: *Driver, lookup: *cocuyo.Lookup, event: rotor.Event, now_ns: u64) void {
         const bytes = event.outcome() catch return;
         if (bytes == 0) return;
-        const delivery = self.loop.datagram(group_id, event);
+        const delivery = self.loop.datagram(self.group, event);
         const from = endpoint_of(delivery.from.peer);
         if (delivery.from.flags.truncated) {
             _ = lookup.on_datagram_cut(delivery.bytes, from, now_ns);
         } else {
             _ = lookup.on_response(delivery.bytes, from, now_ns);
         }
-        self.loop.give_back_buffer(group_id, event.flags.buffer_id);
+        self.loop.give_back_buffer(self.group, event.flags.buffer_id);
     }
 };
 
-fn receive_from(socket: rotor.Descriptor) rotor.Operation {
+fn receive_from(socket: rotor.Descriptor, group_id: rotor.BufferGroup) rotor.Operation {
     return .{ .user_data = receive_tag, .kind = .{ .receive_from = .{
         .socket = socket,
         .group = group_id,

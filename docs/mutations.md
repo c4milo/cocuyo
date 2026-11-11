@@ -12201,3 +12201,23 @@ Three mutations name the action in their text, and `zig build mutations` ran eac
 | E7 | the table misses the deadline of a wait that a poll starts | the engine model's short walks | `CAUGHT` |
 | VL23 | a wait for keys has the last deadline | `zig build test-resolver` | `CAUGHT` |
 | LV3 | the model sends while it waits for keys | `zig build spec-lean` | `CAUGHT` |
+
+## Buffer groups the loop reserves
+
+2026-11-11, docs/design.md §26 step 3. Rotor v0.10.0 gives each buffer group id through
+`reserve_buffer_group`, so that two libraries on one loop never name one group (rotor decision
+29). The engine reserves the id of its datagram group and of its stream group, where it named 0
+and 1 before. A loop with no id left refuses the engine's `init` with `ReceiveFailed`, and the
+engine provides into no group that another library holds. The twin reserves as Rotor does, from
+the lowest id, and refuses one more past its last. E8, U1 and CZ26 name lines that changed, and
+`zig build mutations -- engine E8 U1 CZ26 RG1 RG2 RG3 RG4` ran each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| RG1 | the engine's datagram group takes group 0 when the loop has no id left to reserve | `zig build test-io` | `CAUGHT` |
+| RG4 | the engine's stream group takes group 0 when the loop has no id left to reserve | `zig build test-io` | `CAUGHT` |
+| RG2 | the twin reserves an id past its last one | `zig build test-sim` | `CAUGHT` |
+| RG3 | the twin's first reservation is id 1, not the lowest | `zig build test-sim` | `CAUGHT` |
+| E8 | a stale event keeps its buffer | the engine model's short walks | `CAUGHT` |
+| U1 | a receive that a replaced socket left behind keeps its datagram's buffer | the engine model's short walks | `CAUGHT` |
+| CZ26 | `reinit` opens its sockets before it builds its table and its cache | `zig build test-io` | `CAUGHT` |

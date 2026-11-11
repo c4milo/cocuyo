@@ -257,7 +257,7 @@ pub fn Resolver(comptime options: Options) type {
             self.sockets.reset_generation();
             try self.group.provide(loop);
             try self.tcp_group.provide(loop);
-            try self.sockets.open(loop, config, seed, options.tag);
+            try self.sockets.open(loop, config, seed, options.tag, self.group.id);
             _ = now_ns;
         }
 

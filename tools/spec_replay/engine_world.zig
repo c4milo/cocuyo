@@ -93,7 +93,7 @@ pub fn WorldOver(comptime slots: u16, comptime conns: u16, comptime Doh: type) t
 }
 
 pub fn begin(self: anytype, transport: Transport) !void {
-    try self.loop.init(&self.memory, .{ .operations = @TypeOf(self.engine).loop_operations });
+    try self.loop.init(&self.memory, &.{ .operations = @TypeOf(self.engine).loop_operations });
     self.loop.manual = true;
     for (&self.servers, 0..) |*server, index| {
         const address = rotor.Network.server_address(@intCast(index));
@@ -152,8 +152,8 @@ pub fn apply(self: anytype, token: []const u8) Error!void {
     self.loop.refuse_submissions = false;
     self.loop.network().refuse_open = false;
     try result;
-    for ([_]u16{ io.constants.group_id, io.constants.tcp_group_id }) |group_id| {
-        const group = &self.loop.groups[group_id];
+    for ([_]rotor.BufferGroup{ self.engine.group.id, self.engine.tcp_group.id }) |group_id| {
+        const group = &self.loop.groups[@intFromEnum(group_id)];
         if (group.free_count != group.count) return error.BufferKept;
     }
 }
@@ -352,8 +352,8 @@ fn tls_step(self: anytype, op: []const u8, name: []const u8) Error!void {
     const step = for (steps) |entry| {
         if (std.mem.eql(u8, entry.name, name)) break entry.step;
     } else return error.Malformed;
-    const buffer_id = self.loop.groups[io.constants.tcp_group_id].take() orelse return error.NoBuffer;
-    const buffer = self.loop.provided_buffer(io.constants.tcp_group_id, buffer_id);
+    const buffer_id = self.loop.groups[@intFromEnum(self.engine.tcp_group.id)].take() orelse return error.NoBuffer;
+    const buffer = self.loop.provided_buffer(self.engine.tcp_group.id, buffer_id);
     var event = rotor.Event.success(user_data, @intCast(rotor.tls.write_step(step, buffer)));
     event.flags = .{ .buffer = true, .more = true, .buffer_id = buffer_id };
     _ = self.engine.apply(event, self.now_ns);
@@ -374,8 +374,8 @@ fn carrying(self: anytype, user_data: u64, kind: io.Kind, more: bool) Error!roto
     const target = (user_data & io.constants.index_mask) & io.constants.quic_server_mask;
     const tcp_link = kind == .doh_receive and target % 2 == 1;
     const stream = kind == .tcp_receive or tcp_link;
-    const group_id: u16 = if (stream) io.constants.tcp_group_id else io.constants.group_id;
-    const buffer_id = self.loop.groups[group_id].take() orelse return error.NoBuffer;
+    const group_id: rotor.BufferGroup = if (stream) self.engine.tcp_group.id else self.engine.group.id;
+    const buffer_id = self.loop.groups[@intFromEnum(group_id)].take() orelse return error.NoBuffer;
     const buffer = self.loop.provided_buffer(group_id, buffer_id);
     var length: u32 = 1;
     if (!stream) {
@@ -404,12 +404,12 @@ fn message(self: anytype, op: []const u8, slot: usize, reply: fixtures.Reply, ea
     const kind = kind_of(user_data) orelse return error.Malformed;
     // Only a datagram comes cut, and it comes with the kernel's mark (the datagram's rule 6).
     if (reply == .cut and kind != .udp_receive) return error.Malformed;
-    const group_id: u16 = switch (kind) {
-        .tcp_receive => io.constants.tcp_group_id,
-        .udp_receive => io.constants.group_id,
+    const group_id: rotor.BufferGroup = switch (kind) {
+        .tcp_receive => self.engine.tcp_group.id,
+        .udp_receive => self.engine.group.id,
         else => return error.Malformed,
     };
-    const buffer_id = self.loop.groups[group_id].take() orelse return error.NoBuffer;
+    const buffer_id = self.loop.groups[@intFromEnum(group_id)].take() orelse return error.NoBuffer;
     const buffer = self.loop.provided_buffer(group_id, buffer_id);
     var length: u32 = undefined;
     if (kind == .tcp_receive) {

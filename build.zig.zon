@@ -17,8 +17,8 @@
         // tests. Lazy, so a build that asks for neither does not resolve it. Pinned to the
         // release tag, whose public module is the whole of what rotor supports.
         .rotor = .{
-            .url = "git+https://github.com/c4milo/rotor?ref=v0.9.0#5a5d7d72d8ac4469a48b2a30d77380ac9dd7b90e",
-            .hash = "rotor-0.9.0-YZkxRHY2FQCOGvEpDOWDofpk-UhPMwgUpaU3GyaBzhda",
+            .url = "git+https://github.com/c4milo/rotor?ref=v0.10.0#933985882d693e4d8b876e1403618a3fc6d989ef",
+            .hash = "rotor-0.10.0-YZkxRFCxJABaRNenAUK5EC84mD-ZR3zmBesT76zmXoqu",
             .lazy = true,
         },
         // colibri's QUIC, which `cocuyo_quic` puts under the engine's request interface

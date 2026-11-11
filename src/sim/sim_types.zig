@@ -43,6 +43,10 @@ pub const Address = extern struct {
     }
 };
 
+/// A buffer group id of one loop. Only `reserve_buffer_group` makes one, so a library cannot name
+/// another library's group by a literal (rotor decision 29).
+pub const BufferGroup = enum(u16) { _ };
+
 pub const Operation = struct {
     user_data: u64,
     timeout_ns: u64 = 0,
@@ -86,7 +90,7 @@ pub const Operation = struct {
     pub const Accept = struct { listener: Descriptor, multishot: bool = false };
     pub const Connect = struct { socket: Descriptor, address: *const Address };
     pub const Receive = struct { socket: Descriptor, target: Target, multishot: bool = false };
-    pub const Target = union(enum) { buffer: Buffer, group: u16 };
+    pub const Target = union(enum) { buffer: Buffer, group: BufferGroup };
     pub const Send = struct { socket: Descriptor, buffer: ConstBuffer };
     pub const Shutdown = struct { socket: Descriptor, how: How };
     pub const How = enum(u8) { receive, send, both };
@@ -96,7 +100,7 @@ pub const Operation = struct {
     pub const Fdatasync = struct { file: Descriptor };
     pub const Timer = struct { after_ns: u64, repeat_ns: u64 = 0 };
     pub const Post = struct { target: LoopId, message: Message };
-    pub const ReceiveFrom = struct { socket: Descriptor, group: u16 };
+    pub const ReceiveFrom = struct { socket: Descriptor, group: BufferGroup };
     pub const SendTo = struct {
         socket: Descriptor,
         buffer: ConstBuffer,
@@ -117,7 +121,7 @@ pub const Operation = struct {
     pub fn receive(user_data: u64, socket: Descriptor, bytes: []u8) Operation {
         return .{ .user_data = user_data, .kind = .{ .receive = .{ .socket = socket, .target = .{ .buffer = .{ .bytes = bytes } } } } };
     }
-    pub fn receive_group(user_data: u64, socket: Descriptor, group: u16) Operation {
+    pub fn receive_group(user_data: u64, socket: Descriptor, group: BufferGroup) Operation {
         return .{ .user_data = user_data, .kind = .{ .receive = .{ .socket = socket, .target = .{ .group = group }, .multishot = true } } };
     }
     pub fn send(user_data: u64, socket: Descriptor, bytes: []const u8) Operation {
@@ -144,7 +148,7 @@ pub const Operation = struct {
     pub fn post(user_data: u64, target: LoopId, message: Message) Operation {
         return .{ .user_data = user_data, .kind = .{ .post = .{ .target = target, .message = message } } };
     }
-    pub fn receive_from(user_data: u64, socket: Descriptor, group: u16) Operation {
+    pub fn receive_from(user_data: u64, socket: Descriptor, group: BufferGroup) Operation {
         return .{ .user_data = user_data, .kind = .{ .receive_from = .{ .socket = socket, .group = group } } };
     }
     pub fn send_to(user_data: u64, socket: Descriptor, bytes: []const u8, to: *const Outbound) Operation {

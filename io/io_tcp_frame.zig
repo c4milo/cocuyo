@@ -17,12 +17,12 @@ const kept_module = @import("io_kept.zig");
 /// One chunk of a connection's stream: taken whole, and every whole message it ends handed over.
 pub fn take_chunk(self: anytype, at: u8, event: rotor.Event, count: u32, now_ns: u64) void {
     const connection = &self.connections[at];
-    const buffer = self.loop.provided_buffer(constants.tcp_group_id, event.flags.buffer_id);
+    const buffer = self.loop.provided_buffer(self.tcp_group.id, event.flags.buffer_id);
     const chunk = buffer[0..count];
     // Over TLS the chunk is records, which the session opens into the frame (§21, TLS rule 7).
     if (tls_module.speaks(self)) {
         tls_module.take(self, at, chunk, now_ns);
-        self.loop.give_back_buffer(constants.tcp_group_id, event.flags.buffer_id);
+        self.loop.give_back_buffer(self.tcp_group.id, event.flags.buffer_id);
         return;
     }
     // The frame holds a partial message at most, and room for a chunk past it (rule 11). `deliver`
@@ -31,7 +31,7 @@ pub fn take_chunk(self: anytype, at: u8, event: rotor.Event, count: u32, now_ns:
     assert(connection.used + chunk.len <= connection.frame.len);
     @memcpy(connection.frame[connection.used..][0..chunk.len], chunk);
     connection.used += chunk.len;
-    self.loop.give_back_buffer(constants.tcp_group_id, event.flags.buffer_id);
+    self.loop.give_back_buffer(self.tcp_group.id, event.flags.buffer_id);
     _ = deliver(self, at, now_ns);
 }
 

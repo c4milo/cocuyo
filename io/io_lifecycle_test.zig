@@ -243,6 +243,28 @@ test "a receive's generation and a socket's epoch wrap at the last of their thir
     try rig.deinit();
 }
 
+test "init refuses a loop with no group id for one of its groups, and keeps out of the others'" {
+    // Each library on a shared loop reserves its groups, and a reservation lasts as long as the
+    // loop (rotor decision 29). With no id left for its datagram group, or for its stream group
+    // once the datagram group took the last one, the engine has no buffer to receive into. It
+    // never provides into a group that another library holds.
+    const other_buffers: u16 = 2;
+    const other_bytes: u32 = 64;
+    for ([_]usize{ 0, 1 }) |free| {
+        var rig: Rig = .{};
+        try rig.loop.init(&rig.memory, &.{ .operations = @TypeOf(rig.engine).loop_operations });
+        var other: [rotor.buffers.group_bytes(other_buffers, other_bytes)]u8 align(rotor.buffers.group_alignment) = undefined;
+        const first = try rig.loop.reserve_buffer_group();
+        try rig.loop.provide_buffers(first, &other, other_buffers, other_bytes);
+        for (1..rotor.limits.buffer_groups_max - free) |_| _ = try rig.loop.reserve_buffer_group();
+        rig.config = .{ .servers = &rig.servers };
+        try testing.expectError(error.ReceiveFailed, rig.engine.init(&rig.loop, &rig.config, null, 53, rig.loop.now()));
+        try testing.expectEqual(other_buffers, rig.loop.groups[@intFromEnum(first)].count);
+        try testing.expectEqual(@as(usize, 0), open_sockets(&rig.loop));
+        rig.loop.deinit();
+    }
+}
+
 /// The sockets the twin holds open, whoever opened them.
 fn open_sockets(loop: *rotor.Loop) usize {
     var count: usize = 0;
@@ -291,9 +313,10 @@ test "init takes a payload at the room of a datagram buffer, and refuses one oct
     @memset(std.mem.asBytes(&refused.engine), fixtures.memory_mark);
     const past: cocuyo.Config = .{ .servers = &.{}, .udp_payload_bytes = @intCast(room + 1) };
     try testing.expectError(error.UdpPayloadTooLarge, refused.init(51, .{ .{}, .{} }, past));
-    // The check came first: the engine's memory is as it was, and no buffer or socket is taken.
+    // The check came first: the engine's memory is as it was, and no group, buffer or socket is
+    // taken.
     try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&refused.engine), fixtures.memory_mark));
-    try testing.expectEqual(@as(u16, 0), refused.loop.groups[io.constants.group_id].count);
+    try testing.expectEqual(@as(u16, 0), refused.loop.reserved);
     try testing.expectEqual(@as(usize, 0), open_sockets(&refused.loop));
     refused.loop.deinit();
 

@@ -214,9 +214,9 @@ fn arm(self: anytype, server: u8, at: u1) void {
     const descriptor = state.descriptor orelse return;
     const user_data = user_data_of(self, .doh_receive, server, at);
     const operation: rotor.Operation = if (at == @intFromEnum(tcp_link(self)))
-        .receive_group(user_data, descriptor, constants.tcp_group_id)
+        .receive_group(user_data, descriptor, self.tcp_group.id)
     else
-        .receive_from(user_data, descriptor, constants.group_id);
+        .receive_from(user_data, descriptor, self.group.id);
     var handles: [1]rotor.Handle = undefined;
     if (self.loop.submit(&.{operation}, &handles) == 1) state.receive = handles[0];
 }
@@ -311,7 +311,7 @@ pub fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns:
     if (comptime !@TypeOf(self.*).Doh.enabled) unreachable;
     const link = named(index);
     const stream = link.at == @intFromEnum(tcp_link(self));
-    const group: u16 = if (stream) constants.tcp_group_id else constants.group_id;
+    const group: rotor.BufferGroup = if (stream) self.tcp_group.id else self.group.id;
     const state = &self.doh.slots[link.server].links[link.at];
     const current = state.state == .running and state.incarnation == link.incarnation;
     if (event.flags.buffer) {
@@ -339,9 +339,9 @@ fn take(self: anytype, server: u8, stream: bool, event: rotor.Event, now_ns: u64
     const channel = &self.doh.slots[server].channel;
     if (stream) {
         const count = event.outcome() catch return;
-        channel.receive(.{ .stream = self.loop.provided_buffer(constants.tcp_group_id, event.flags.buffer_id)[0..count] }, now_ns);
+        channel.receive(.{ .stream = self.loop.provided_buffer(self.tcp_group.id, event.flags.buffer_id)[0..count] }, now_ns);
     } else {
-        channel.receive(.{ .datagram = self.loop.datagram(constants.group_id, event).bytes }, now_ns);
+        channel.receive(.{ .datagram = self.loop.datagram(self.group.id, event).bytes }, now_ns);
     }
     channel_module.hear(self, server, now_ns);
 }

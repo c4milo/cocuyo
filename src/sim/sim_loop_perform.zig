@@ -32,7 +32,7 @@ pub fn perform(loop: *Loop, slot: u32, operation: *const Operation) void {
     const user_data = operation.user_data;
     switch (operation.kind) {
         .send_to => |send| send_datagram(loop, slot, &send),
-        .receive_from => |receive| register(loop, slot, user_data, receive.socket, receive.group, true),
+        .receive_from => |receive| register(loop, slot, user_data, receive.socket, @intFromEnum(receive.group), true),
         .connect => |connect| connect_stream(loop, slot, &connect),
         .send => |send| send_stream(loop, slot, &send),
         .receive => |receive| receive_stream(loop, slot, user_data, &receive),
@@ -253,7 +253,7 @@ fn consume(connection: *network_module.Connection, count: usize) void {
 fn receive_stream(loop: *Loop, slot: u32, user_data: u64, receive: *const Operation.Receive) void {
     // The engine reads into groups; a caller's own buffer is not what the twin delivers into.
     const group = switch (receive.target) {
-        .group => |group| group,
+        .group => |group| @intFromEnum(group),
         .buffer => unreachable,
     };
     register(loop, slot, user_data, receive.socket, group, receive.multishot);
@@ -270,7 +270,7 @@ pub fn withdraw(loop: *Loop, slot: u32) void {
             index += 1;
             continue;
         }
-        if (pending.event.flags.buffer) loop.give_back_buffer(pending.group, pending.event.flags.buffer_id);
+        if (pending.event.flags.buffer) loop.give_back_buffer(@enumFromInt(pending.group), pending.event.flags.buffer_id);
         loop.pending_count -= 1;
         loop.pending[index] = loop.pending[loop.pending_count];
     }
@@ -317,7 +317,7 @@ fn materialize_datagrams(loop: *Loop) void {
             loop.queue(receiver.slot, Event.failure(receiver.user_data, .buffers_exhausted), loop.now_ns, true);
             continue;
         };
-        const buffer = loop.provided_buffer(receiver.group, buffer_id);
+        const buffer = loop.provided_buffer(@enumFromInt(receiver.group), buffer_id);
         const len = buffers.write_delivery(buffer, loop.group_options, &pending.from, pending.bytes[0..pending.len]);
         const last = last_delivery(entry, receiver);
         loop.queue_delivery(receiver, buffer_id, len, pending.due_ns, last);
@@ -363,7 +363,7 @@ fn stream_ready(loop: *const Loop, connection: *const network_module.Connection)
 /// receive's final event when `last` says so.
 fn deliver_chunk(loop: *Loop, connection: *network_module.Connection, receiver: network_module.Receiver, last: bool) bool {
     const buffer_id = loop.groups[receiver.group].take() orelse return false;
-    const buffer = loop.provided_buffer(receiver.group, buffer_id);
+    const buffer = loop.provided_buffer(@enumFromInt(receiver.group), buffer_id);
     const most = @min(connection.inbound_len, buffer.len);
     const chunk: usize = limits.stream_chunk_bytes_min + draw(loop) % (most - limits.stream_chunk_bytes_min + 1);
     @memcpy(buffer[0..chunk], connection.inbound[0..chunk]);

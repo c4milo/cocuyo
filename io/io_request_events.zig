@@ -48,7 +48,7 @@ pub fn on_send_event(self: anytype, index: usize, event: rotor.Event, now_ns: u6
 pub fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
     if (comptime !@TypeOf(self.*).Quic.enabled) return;
     const server = current_of(self, index) orelse {
-        if (event.flags.buffer) self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);
+        if (event.flags.buffer) self.loop.give_back_buffer(self.group.id, event.flags.buffer_id);
         return;
     };
     const connection = &self.quic.connections[server];
@@ -68,12 +68,12 @@ fn take_datagram(self: anytype, server: u8, event: rotor.Event, now_ns: u64) boo
     const closing = connection.state == .closing;
     var refused = false;
     if (!closing) {
-        const delivery = self.loop.datagram(constants.group_id, event);
+        const delivery = self.loop.datagram(self.group.id, event);
         connection.transport.receive(delivery.bytes, now_ns) catch {
             refused = true;
         };
     }
-    self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);
+    self.loop.give_back_buffer(self.group.id, event.flags.buffer_id);
     if (refused) {
         connection_module.fail(self, server, connection_module.reason_of(self, server, .handshake), now_ns);
         return false;

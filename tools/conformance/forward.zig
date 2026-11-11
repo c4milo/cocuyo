@@ -35,7 +35,7 @@ const Resolver = io.Resolver(.{ .lookups = lookups_max });
 const lookups_max = 8;
 
 const loop_options: rotor.Loop.Options = .{ .operations = Resolver.loop_operations };
-var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
+var loop_memory: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment) = undefined;
 var engine: Resolver = undefined;
 var cache_memory: cocuyo.Cache.Storage(io.constants.cache_slots_default) = undefined;
 var trust: trust_text.Trust = .{};
@@ -130,7 +130,7 @@ pub fn main(init: std.process.Init) !void {
     try init.io.randomSecure(&engine_seed);
     const clock: Clock = .init(init.io);
     var loop: rotor.Loop = undefined;
-    try loop.init(&loop_memory, loop_options);
+    try loop.init(&loop_memory, &loop_options);
     defer loop.deinit();
     var events: [events_max]rotor.Event = undefined;
     try engine.init(&loop, &config, cache_memory.slices(), std.mem.readInt(u64, &engine_seed, .little), clock.read());

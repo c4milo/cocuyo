@@ -29,7 +29,7 @@ const Tiny = io.Resolver(.{
 test "a message longer than the connection can assemble ends the lookups on it" {
     var loop: rotor.Loop = undefined;
     var memory: [0]u8 align(rotor.memory_alignment) = undefined;
-    try loop.init(&memory, .{ .operations = Tiny.loop_operations });
+    try loop.init(&memory, &.{ .operations = Tiny.loop_operations });
     loop.seed(19);
     loop.network().scripts[0] = .{ .truncate_per_256 = fixtures.always };
     loop.network().server_count = 1;

@@ -28,8 +28,8 @@ pub fn step(self: anytype, op: []const u8, parts: *std.mem.SplitIterator(u8, .sc
     const reply = std.meta.stringToEnum(fixtures.Reply, parts.next() orelse "");
     var datagram: [rotor.limits.quic_datagram_bytes_max]u8 = undefined;
     const len = try item(self, server, name, slot, reply, &datagram);
-    const buffer_id = self.loop.groups[io.constants.group_id].take() orelse return error.NoBuffer;
-    const buffer = self.loop.provided_buffer(io.constants.group_id, buffer_id);
+    const buffer_id = self.loop.groups[@intFromEnum(self.engine.group.id)].take() orelse return error.NoBuffer;
+    const buffer = self.loop.provided_buffer(self.engine.group.id, buffer_id);
     const peer = rotor.Network.server_address(server);
     var event = rotor.Event.success(user_data, rotor.buffers.write_delivery(buffer, .{}, &peer, datagram[0..len]));
     event.flags = .{ .buffer = true, .more = true, .buffer_id = buffer_id };

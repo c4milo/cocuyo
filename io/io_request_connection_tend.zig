@@ -29,7 +29,7 @@ pub fn arm(self: anytype, server: u8) void {
     assert(connection.receive == null);
     const descriptor = connection.descriptor orelse return;
     const user_data = connection_module.user_data_of(self, .quic_receive, server);
-    const operation: rotor.Operation = .receive_from(user_data, descriptor, constants.group_id);
+    const operation: rotor.Operation = .receive_from(user_data, descriptor, self.group.id);
     var handles: [1]rotor.Handle = undefined;
     if (self.loop.submit(&.{operation}, &handles) == 1) connection.receive = handles[0];
 }

@@ -42,6 +42,7 @@ pub const Address = types.Address;
 pub const Code = types.EventCode;
 pub const Delivery = types.Delivery;
 pub const Descriptor = types.Descriptor;
+pub const BufferGroup = types.BufferGroup;
 pub const Error = types.Error;
 pub const Event = types.Event;
 pub const Handle = types.Handle;

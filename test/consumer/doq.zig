@@ -42,12 +42,12 @@ const unix_seconds = 1;
 /// (docs/design.md §16 decision 48).
 const cpu: chapulin.Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated };
 
-var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
+var loop_memory: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment) = undefined;
 var resolver: Resolver = undefined;
 
 pub fn main(init: std.process.Init) !void {
     var loop: rotor.Loop = undefined;
-    try loop.init(&loop_memory, loop_options);
+    try loop.init(&loop_memory, &loop_options);
     defer loop.deinit();
 
     // A server known by its name. The program trusts no root and names no pin. It is built, and

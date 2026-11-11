@@ -12,7 +12,8 @@ const Operation = sim.Operation;
 
 const fixtures = @import("fixtures.zig");
 const options: Loop.Options = .{ .operations = fixtures.operations };
-const group_id = fixtures.group_id;
+/// The first id a new loop reserves, which `Rig.init` asserts it was given (rotor decision 29).
+const group_id: sim.BufferGroup = @enumFromInt(fixtures.group_id);
 const group_buffers = fixtures.group_buffers;
 const buffer_bytes = fixtures.buffer_bytes;
 const group: sim.datagram.GroupOptions = .{};
@@ -32,10 +33,11 @@ const Rig = struct {
     outbound: sim.datagram.Outbound = undefined,
 
     fn init(rig: *Rig, seed: u64, script: sim.server.Script) !void {
-        try rig.loop.init(&rig.memory, options);
+        try rig.loop.init(&rig.memory, &options);
         rig.loop.seed(seed);
         rig.loop.network().scripts[0] = script;
         rig.loop.network().server_count = 1;
+        try std.testing.expectEqual(group_id, try rig.loop.reserve_buffer_group());
         try rig.loop.provide_datagram_buffers(group_id, &rig.group_memory, group_buffers, buffer_bytes, group);
         var query: wire.Query = .{ .id = fixtures.query_id, .name = try core.Name.parse("example.com"), .kind = .a, .tcp = false };
         rig.query_len = wire.query.write(&query, &rig.query);
@@ -397,11 +399,11 @@ test "a buffer is taken when its datagram is due and not before, and a group run
     while (sends < group_buffers + 1) : (sends += 1) _ = rig.loop.submit(&.{send_to(&rig, socket)}, &.{});
     var events: [group_buffers + 2]Event = undefined;
     _ = try rig.collect(&events, 0);
-    try testing.expectEqual(@as(u16, group_buffers), rig.loop.groups[group_id].free_count);
+    try testing.expectEqual(@as(u16, group_buffers), rig.loop.groups[@intFromEnum(group_id)].free_count);
     // At the due instant every buffer is taken by a delivery, and the fifth datagram ends the
     // receive with the group dry.
     const count = try rig.collect(&events, 10_000);
-    try testing.expectEqual(@as(u16, 0), rig.loop.groups[group_id].free_count);
+    try testing.expectEqual(@as(u16, 0), rig.loop.groups[@intFromEnum(group_id)].free_count);
     var deliveries: usize = 0;
     var dry = false;
     for (events[0..count]) |event| {

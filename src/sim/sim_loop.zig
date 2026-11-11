@@ -82,6 +82,9 @@ pub const Loop = struct {
     sequence: u32,
     now_ns: u64,
     groups: [limits.buffer_groups_max]buffers.Group,
+    /// How many group ids `reserve_buffer_group` gave, from 0 up. A reservation ends with the loop
+    /// (rotor decision 29).
+    reserved: u16,
     group_options: types.GroupOptions,
     /// The draws the network makes: delays, drops, chunk sizes. Seeded by `seed`.
     word: u64,
@@ -97,12 +100,12 @@ pub const Loop = struct {
 
     /// The twin keeps its tables inside itself, so it needs none of the caller's memory; the
     /// signature is rotor's so a caller's arrays are sized the same.
-    pub fn memory_bytes(options: Options) usize {
+    pub fn memory_bytes(options: *const Options) usize {
         assert(options.operations >= 1);
         return 0;
     }
 
-    pub fn init(loop: *Loop, memory: []align(constants.memory_alignment) u8, options: Options) InitError!void {
+    pub fn init(loop: *Loop, memory: []align(constants.memory_alignment) u8, options: *const Options) InitError!void {
         assert(options.operations >= 1);
         assert(options.operations <= limits.operations_max);
         assert(memory.len >= memory_bytes(options));
@@ -116,6 +119,7 @@ pub const Loop = struct {
             .sequence = 0,
             .now_ns = 0,
             .groups = @splat(buffers.Group.none),
+            .reserved = 0,
             .group_options = .{},
             .word = 0,
             .statistics_ = .{},
@@ -330,9 +334,16 @@ pub const Loop = struct {
 
     // Buffers.
 
+    /// The lowest group id that no caller holds, as rotor reserves it (rotor decision 29).
+    pub fn reserve_buffer_group(loop: *Loop) error{BufferGroupsFull}!types.BufferGroup {
+        if (loop.reserved == limits.buffer_groups_max) return error.BufferGroupsFull;
+        loop.reserved += 1;
+        return @enumFromInt(loop.reserved - 1);
+    }
+
     pub fn provide_datagram_buffers(
         loop: *Loop,
-        group_id: u16,
+        group_id: types.BufferGroup,
         memory: []align(buffers.group_alignment) u8,
         count: u16,
         buffer_bytes: u32,
@@ -345,29 +356,29 @@ pub const Loop = struct {
 
     pub fn provide_buffers(
         loop: *Loop,
-        group_id: u16,
+        group_id: types.BufferGroup,
         memory: []align(buffers.group_alignment) u8,
         count: u16,
         buffer_bytes: u32,
     ) buffers.ProvideError!void {
-        assert(group_id < limits.buffer_groups_max);
+        assert(@intFromEnum(group_id) < loop.reserved);
         assert(memory.len >= buffers.group_bytes(count, buffer_bytes));
-        loop.groups[group_id] = buffers.Group.init(memory, count, buffer_bytes);
+        loop.groups[@intFromEnum(group_id)] = buffers.Group.init(memory, count, buffer_bytes);
     }
 
-    pub fn provided_buffer(loop: *const Loop, group_id: u16, buffer_id: u16) []u8 {
-        assert(group_id < limits.buffer_groups_max);
-        return loop.groups[group_id].bytes_of(buffer_id);
+    pub fn provided_buffer(loop: *const Loop, group_id: types.BufferGroup, buffer_id: u16) []u8 {
+        assert(@intFromEnum(group_id) < loop.reserved);
+        return loop.groups[@intFromEnum(group_id)].bytes_of(buffer_id);
     }
 
-    pub fn give_back_buffer(loop: *Loop, group_id: u16, buffer_id: u16) void {
-        assert(group_id < limits.buffer_groups_max);
-        loop.groups[group_id].give_back(buffer_id);
+    pub fn give_back_buffer(loop: *Loop, group_id: types.BufferGroup, buffer_id: u16) void {
+        assert(@intFromEnum(group_id) < loop.reserved);
+        loop.groups[@intFromEnum(group_id)].give_back(buffer_id);
     }
 
     /// The datagram an event of group `group_id` names: one call, the only reader of such a
     /// buffer.
-    pub fn datagram(loop: *const Loop, group_id: u16, event: Event) types.Delivery {
+    pub fn datagram(loop: *const Loop, group_id: types.BufferGroup, event: Event) types.Delivery {
         assert(!event.flags.message);
         assert(event.result >= 0);
         const buffer = loop.provided_buffer(group_id, event.flags.buffer_id);
@@ -384,6 +395,18 @@ pub const Loop = struct {
         _ = descriptors;
     }
 };
+
+test "a loop reserves each group id once, from the lowest, and refuses one more" {
+    // As rotor does, so that two libraries on one loop never name one group (rotor decision 29).
+    var loop: Loop = undefined;
+    var memory: [0]u8 align(constants.memory_alignment) = undefined;
+    try loop.init(&memory, &.{ .operations = 1 });
+    for (0..limits.buffer_groups_max) |index| {
+        try std.testing.expectEqual(index, @intFromEnum(try loop.reserve_buffer_group()));
+    }
+    try std.testing.expectError(error.BufferGroupsFull, loop.reserve_buffer_group());
+    loop.deinit();
+}
 
 test {
     _ = perform;

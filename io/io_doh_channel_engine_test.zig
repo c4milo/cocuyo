@@ -187,7 +187,7 @@ const World = struct {
         const world = try testing.allocator.create(World);
         errdefer testing.allocator.destroy(world);
         world.* = .{};
-        try world.loop.init(&world.memory, .{ .operations = Resolver.loop_operations });
+        try world.loop.init(&world.memory, &.{ .operations = Resolver.loop_operations });
         world.loop.seed(seed);
         world.loop.network().server_count = servers;
         for (&world.servers, 0..) |*server, index| {

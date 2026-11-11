@@ -73,7 +73,7 @@ pub fn RigOfServers(comptime EngineType: type, comptime server_count: u8) type {
             config: cocuyo.Config,
             cache_memory: ?cache.Slices,
         ) !void {
-            try rig.loop.init(&rig.memory, loop_options);
+            try rig.loop.init(&rig.memory, &loop_options);
             rig.loop.seed(seed);
             @memcpy(rig.loop.network().scripts[0..server_count], &scripts);
             rig.loop.network().server_count = server_count;
@@ -85,7 +85,7 @@ pub fn RigOfServers(comptime EngineType: type, comptime server_count: u8) type {
         /// A rig whose engine holds `config`, which other engines may hold too: a `Config` is read
         /// and never written (docs/design.md §24, a thread per core). Its servers are the twin's.
         pub fn init_on(rig: *RigType, seed: u64, scripts: [server_count]rotor.server.Script, config: *const cocuyo.Config) !void {
-            try rig.loop.init(&rig.memory, loop_options);
+            try rig.loop.init(&rig.memory, &loop_options);
             rig.loop.seed(seed);
             @memcpy(rig.loop.network().scripts[0..server_count], &scripts);
             rig.loop.network().server_count = server_count;
@@ -445,7 +445,7 @@ const Small = io.Resolver(.{ .lookups = fixtures.small_lookups, .group_buffers =
 test "the receive is armed again after the group runs dry, and every answer still arrives" {
     var loop: rotor.Loop = undefined;
     var memory: [0]u8 align(rotor.memory_alignment) = undefined;
-    try loop.init(&memory, .{ .operations = Small.loop_operations });
+    try loop.init(&memory, &.{ .operations = Small.loop_operations });
     loop.seed(8);
     loop.network().scripts[0] = .{ .delay_ns_min = 1000, .delay_ns_max = 1000 };
     loop.network().server_count = 1;

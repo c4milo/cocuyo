@@ -26,10 +26,9 @@ pub const tag_shift: u6 = 48;
 pub const kind_shift: u6 = 40;
 pub const index_mask: u64 = (1 << kind_shift) - 1;
 
-/// The buffers the datagram group holds, and the group's id. The octets of each buffer are
-/// `limits.buffer_bytes_max`.
+/// The buffers the datagram group holds. The octets of each buffer are `limits.buffer_bytes_max`.
+/// The group's id is the one the loop reserves for it (rotor decision 29).
 pub const group_buffers_default: usize = 64;
-pub const group_id: u16 = 0;
 
 /// The options the engine provides its datagram group with: rotor's own, whose prefix before each
 /// payload is 192 octets.
@@ -44,10 +43,6 @@ pub const tcp_connections_default: usize = 1;
 /// request and one earlier try's (docs/design.md §24, request rule 3). The pool is shared, so a
 /// lookup with no earlier request leaves a slot to one with two.
 pub const requests_per_lookup_default: usize = 2;
-
-/// The stream chunks arrive in a group of their own: a datagram group carries rotor's prefix
-/// before every payload, and a stream has no peer to name.
-pub const tcp_group_id: u16 = 1;
 
 /// The buffers the stream group holds. The octets of each buffer are `limits.tcp_chunk_bytes_max`.
 pub const tcp_group_buffers_default: usize = 8;

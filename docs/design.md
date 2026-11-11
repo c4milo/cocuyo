@@ -12050,8 +12050,9 @@ the code that it describes, because CI's `spec` job replays the model's walks ag
 
 1. This design, and the owner's answers to §17 questions 124 to 128. Done on 2026-11-11.
 2. The lookup's wait: `Action.wait` becomes `wait_until_ns` in the library, the Lean model and the
-   replays.
-3. Rotor v0.10.0: the twin takes its surface, and the engine reserves its buffer groups.
+   replays. Done on 2026-11-11.
+3. Rotor v0.10.0: the twin takes its surface, and the engine reserves its buffer groups. Done on
+   2026-11-11.
 4. The driver and the adapter: `turn`, `complete` and `.private` over the twin, the fake host's
    tests, and the open as an operation in the TLA+ model, with its walks and its mutants.
 5. The surface: the renames, the module, the examples, the README and the consumer fixture.

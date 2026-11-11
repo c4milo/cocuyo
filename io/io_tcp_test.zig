@@ -262,7 +262,7 @@ test "a connection that comes up after its lookup moved on tells nobody" {
 test "the stream receive is armed again after its group runs dry" {
     var loop: rotor.Loop = undefined;
     var memory: [0]u8 align(rotor.memory_alignment) = undefined;
-    try loop.init(&memory, .{ .operations = Dry.loop_operations });
+    try loop.init(&memory, &.{ .operations = Dry.loop_operations });
     loop.seed(20);
     loop.network().scripts[0] = .{ .truncate_per_256 = fixtures.always };
     loop.network().server_count = 1;

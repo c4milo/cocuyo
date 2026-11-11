@@ -70,7 +70,7 @@
         .id = "E8",
         .what = "a stale event keeps its buffer",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    if (event.flags.buffer) self.loop.give_back_buffer(constants.tcp_group_id, event.flags.buffer_id);\n    return null;", .new = "    _ = event;\n    return null;" },
+            .{ .file = "io/io_tcp.zig", .old = "    if (event.flags.buffer) self.loop.give_back_buffer(self.tcp_group.id, event.flags.buffer_id);\n    return null;", .new = "    _ = event;\n    return null;" },
         },
         .caught_by = .short_walks,
     },
@@ -337,7 +337,7 @@
         .id = "U1",
         .what = "a receive a replaced socket left behind keeps its datagram's buffer",
         .edits = .{
-            .{ .file = "io/io_events.zig", .old = "    const found = self.sockets.find(index) orelse {\n        if (event.flags.buffer) self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);\n        return;\n    };", .new = "    const found = self.sockets.find(index) orelse return;" },
+            .{ .file = "io/io_events.zig", .old = "    const found = self.sockets.find(index) orelse {\n        if (event.flags.buffer) self.loop.give_back_buffer(self.group.id, event.flags.buffer_id);\n        return;\n    };", .new = "    const found = self.sockets.find(index) orelse return;" },
         },
         .caught_by = .short_walks,
     },
@@ -1252,7 +1252,7 @@
         .id = "CZ26",
         .what = "reinit opens its sockets before it builds its table and its cache, so a reinit that fails keeps the cache it had",
         .edits = .{
-            .{ .file = "io/io_lifecycle.zig", .old = "    reset_tables(self, config, cache_memory, seed);\n    try self.sockets.open(self.loop, config, seed, @TypeOf(self.*).tag);", .new = "    try self.sockets.open(self.loop, config, seed, @TypeOf(self.*).tag);\n    reset_tables(self, config, cache_memory, seed);" },
+            .{ .file = "io/io_lifecycle.zig", .old = "    reset_tables(self, config, cache_memory, seed);\n    try self.sockets.open(self.loop, config, seed, @TypeOf(self.*).tag, self.group.id);", .new = "    try self.sockets.open(self.loop, config, seed, @TypeOf(self.*).tag, self.group.id);\n    reset_tables(self, config, cache_memory, seed);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -8578,5 +8578,41 @@
             .{ .file = "src/cocuyo.zig", .old = "    pub const addresses_max = core.limits.addresses_max;\n", .new = "" },
         },
         .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "Buffer groups the loop reserves",
+        .id = "RG1",
+        .what = "the engine's datagram group takes group 0 when the loop has no id left to reserve",
+        .edits = .{
+            .{ .file = "io/io_udp.zig", .old = "            self.id = loop.reserve_buffer_group() catch return error.ReceiveFailed;", .new = "            self.id = loop.reserve_buffer_group() catch @enumFromInt(0);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "Buffer groups the loop reserves",
+        .id = "RG4",
+        .what = "the engine's stream group takes group 0 when the loop has no id left to reserve",
+        .edits = .{
+            .{ .file = "io/io_tcp_group.zig", .old = "            self.id = loop.reserve_buffer_group() catch return error.ReceiveFailed;", .new = "            self.id = loop.reserve_buffer_group() catch @enumFromInt(0);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "Buffer groups the loop reserves",
+        .id = "RG2",
+        .what = "the twin reserves an id past its last one",
+        .edits = .{
+            .{ .file = "src/sim/sim_loop.zig", .old = "        if (loop.reserved == limits.buffer_groups_max) return error.BufferGroupsFull;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
+    .{
+        .section = "Buffer groups the loop reserves",
+        .id = "RG3",
+        .what = "the twin's first reservation is id 1, not the lowest",
+        .edits = .{
+            .{ .file = "src/sim/sim_loop.zig", .old = "        return @enumFromInt(loop.reserved - 1);", .new = "        return @enumFromInt(loop.reserved);" },
+        },
+        .caught_by = .{ .step = "test-sim" },
     },
 }

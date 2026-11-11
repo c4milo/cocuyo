@@ -51,10 +51,13 @@ pub const Sockets = struct {
     next_generation: u32 = 0,
     /// Names every socket this table has opened, apart, for the same reason.
     next_epoch: u32 = 0,
+    /// The datagram group every receive takes its buffers from, which the loop reserved for the
+    /// engine (rotor decision 29).
+    group: rotor.BufferGroup = undefined,
 
     /// Opens a socket per server and starts its receive. A port already in use is not a reason
     /// to fail: the kernel picks another.
-    pub fn open(self: *Sockets, loop: *rotor.Loop, config: *const cocuyo.Config, seed: u64, tag: u16) error{ SocketFailed, ReceiveFailed }!void {
+    pub fn open(self: *Sockets, loop: *rotor.Loop, config: *const cocuyo.Config, seed: u64, tag: u16, group: rotor.BufferGroup) error{ SocketFailed, ReceiveFailed }!void {
         // The generation counter is not reset: it tells a receive from one a socket that is
         // gone left behind, and `reinit` is exactly when there are some.
         self.items = @splat(.{});
@@ -64,6 +67,7 @@ pub const Sockets = struct {
         // socket is its own (§24, request rule 1).
         self.count = if (config.encrypted()) 0 else @intCast(config.servers.len);
         self.word = seed;
+        self.group = group;
         for (config.servers[0..self.count], 0..) |*server, index| {
             self.items[index] = try self.open_port(config, server.endpoint.address.family);
             try self.arm(loop, &self.items[index], @intCast(index), tag);
@@ -164,7 +168,7 @@ pub const Sockets = struct {
         const operation: rotor.Operation = .receive_from(
             user_data(tag, .udp_receive, receive_index(index, socket.armed_generation)),
             socket.descriptor,
-            constants.group_id,
+            self.group,
         );
         var handles: [1]rotor.Handle = undefined;
         if (loop.submit(&.{operation}, &handles) != 1) {
@@ -270,6 +274,8 @@ pub fn Group(comptime buffers: u16) type {
         /// from a premise that was false. Debug computes on the real address, which is why only
         /// ReleaseSafe failed.
         memory: [needed + alignment]u8,
+        /// The id the loop reserved for the group at `provide` (rotor decision 29).
+        id: rotor.BufferGroup,
 
         /// The aligned window, which is what rotor is given.
         pub fn ring(self: *Self) []align(alignment) u8 {
@@ -285,10 +291,14 @@ pub fn Group(comptime buffers: u16) type {
             assert(@alignOf(Self) <= limits.storage_alignment_max);
         }
 
+        /// Reserves the group's id on the loop and gives the loop its buffers. A loop whose every
+        /// id another library holds gives none (rotor decision 29), and the engine then has no
+        /// buffer to receive into.
         pub fn provide(self: *Self, loop: *rotor.Loop) error{ReceiveFailed}!void {
             const memory = ring(self);
             assert(@intFromPtr(memory.ptr) % alignment == 0);
-            loop.provide_datagram_buffers(constants.group_id, memory, buffers, limits.buffer_bytes_max, group) catch
+            self.id = loop.reserve_buffer_group() catch return error.ReceiveFailed;
+            loop.provide_datagram_buffers(self.id, memory, buffers, limits.buffer_bytes_max, group) catch
                 return error.ReceiveFailed;
         }
     };

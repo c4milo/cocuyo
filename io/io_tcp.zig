@@ -260,7 +260,7 @@ pub fn current_of(self: anytype, index: usize, event: rotor.Event) ?u8 {
     // rule 8): their events speak for nobody.
     const live = connection.state != .closed and connection.state != .reopening;
     if (live and connection.incarnation == incarnation) return at;
-    if (event.flags.buffer) self.loop.give_back_buffer(constants.tcp_group_id, event.flags.buffer_id);
+    if (event.flags.buffer) self.loop.give_back_buffer(self.tcp_group.id, event.flags.buffer_id);
     return null;
 }
 
@@ -327,7 +327,7 @@ fn receive_again(self: anytype, at: u8) void {
     const connection = &self.connections[at];
     if (connection.receiving or !(reads(connection.state) or connection.state == .closing)) return;
     const descriptor = connection.descriptor orelse return;
-    const operation: rotor.Operation = .receive_group(user_data_of(self, .tcp_receive, at), descriptor, constants.tcp_group_id);
+    const operation: rotor.Operation = .receive_group(user_data_of(self, .tcp_receive, at), descriptor, self.tcp_group.id);
     var handles: [1]rotor.Handle = undefined;
     if (self.loop.submit(&.{operation}, &handles) == 1) {
         connection.receiving = true;

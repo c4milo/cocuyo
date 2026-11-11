@@ -55,9 +55,9 @@ fn deliver(rig: anytype, server: u8, datagram: []const u8) !void {
 /// The same, on the receive of server `server`'s socket armed as `generation`: its current one,
 /// or the one that drains.
 fn deliver_to(rig: anytype, server: u8, generation: usize, datagram: []const u8) !void {
-    const group = &rig.loop.groups[io.constants.group_id];
+    const group = &rig.loop.groups[@intFromEnum(rig.engine.group.id)];
     const id = group.take() orelse return error.NoBuffer;
-    const buffer = rig.loop.provided_buffer(io.constants.group_id, id);
+    const buffer = rig.loop.provided_buffer(rig.engine.group.id, id);
     const peer = rotor.Network.server_address(server);
     const kept = datagram[0..@min(datagram.len, room(rig))];
     const len = rotor.buffers.write_delivery(buffer, rig.loop.group_options, &peer, kept);
@@ -94,10 +94,10 @@ test "a datagram that fills a buffer of the group to its last octet is read whol
     try testing.expectEqual(@as(usize, 1856), room(&rig));
     var out: [io.limits.buffer_bytes_max]u8 = undefined;
     const answer = try padded_answer(&rig, handle, room(&rig), &out);
-    const free = rig.loop.groups[io.constants.group_id].free_count;
+    const free = rig.loop.groups[@intFromEnum(rig.engine.group.id)].free_count;
     try deliver(&rig, 0, answer);
     // The table read the datagram, and its buffer went back (rule 3).
-    try testing.expectEqual(free, rig.loop.groups[io.constants.group_id].free_count);
+    try testing.expectEqual(free, rig.loop.groups[@intFromEnum(rig.engine.group.id)].free_count);
     const result = rig.engine.take(rig.loop.now()) orelse return error.TestUnexpectedResult;
     try testing.expectEqual(handle, result.handle);
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
@@ -116,9 +116,9 @@ test "a datagram one octet longer than the room is taken as truncated, and its l
     rig.loop.network().scripts[0] = .{};
     var out: [io.limits.buffer_bytes_max]u8 = undefined;
     const answer = try padded_answer(&rig, handle, room(&rig) + 1, &out);
-    const free = rig.loop.groups[io.constants.group_id].free_count;
+    const free = rig.loop.groups[@intFromEnum(rig.engine.group.id)].free_count;
     try deliver(&rig, 0, answer);
-    try testing.expectEqual(free, rig.loop.groups[io.constants.group_id].free_count);
+    try testing.expectEqual(free, rig.loop.groups[@intFromEnum(rig.engine.group.id)].free_count);
     try testing.expectEqual(resolver.State.connecting_tcp, rig.engine.resolver.lookup_of(handle).state);
     // A copy that comes once the lookup is on its way to a stream is ignored (rule 1 of §7, A
     // datagram that the buffer cut).
@@ -141,9 +141,9 @@ test "a cut datagram that fails a check of section 7 is ignored, and its lookup 
     const handle = try waiting(&rig, 33);
     var out: [io.limits.buffer_bytes_max]u8 = undefined;
     const answer = try padded_answer(&rig, handle, room(&rig) + 1, &out);
-    const free = rig.loop.groups[io.constants.group_id].free_count;
+    const free = rig.loop.groups[@intFromEnum(rig.engine.group.id)].free_count;
     try deliver(&rig, 1, answer);
-    try testing.expectEqual(free, rig.loop.groups[io.constants.group_id].free_count);
+    try testing.expectEqual(free, rig.loop.groups[@intFromEnum(rig.engine.group.id)].free_count);
     try testing.expectEqual(resolver.State.awaiting_udp, rig.engine.resolver.lookup_of(handle).state);
     try testing.expect(rig.engine.take(rig.loop.now()) == null);
     try testing.expect(rig.engine.connections[0].state == .closed);

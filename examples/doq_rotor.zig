@@ -65,7 +65,7 @@ const Resolver = io.Resolver(.{
 });
 
 const loop_options: rotor.Loop.Options = .{ .operations = Resolver.loop_operations };
-var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
+var loop_memory: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment) = undefined;
 var engine: Resolver = undefined;
 /// The cache's memory, which is the caller's (docs/design.md §19 step 13): the size the README
 /// recommends, 2.9 MiB. The engine builds its cache over it at `init`, and `null` in its place
@@ -153,7 +153,7 @@ pub fn main(init: std.process.Init) !void {
     cpu_text.report(command.cpu);
 
     var loop: rotor.Loop = undefined;
-    try loop.init(&loop_memory, loop_options);
+    try loop.init(&loop_memory, &loop_options);
     defer loop.deinit();
     var events: [events_max]rotor.Event = undefined;
     try engine.init(&loop, &config, cache_memory.slices(), std.mem.readInt(u64, &engine_seed, .little), clock.read());
