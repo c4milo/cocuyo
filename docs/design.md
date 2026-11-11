@@ -5104,6 +5104,27 @@ step until `zig build test` passes.
     lookup keys one or two ids in the usual case. The owner has not ruled on the 64: §17 question
     123 asks.
 
+67. **The engine runs on any loop, as colibri's client does.** Ruled by the owner on 2026-11-11,
+    for c4milo/cocuyo#65: the engine follows colibri's decision 159. §26 is the design.
+
+    - `Engine(options, kind)` replaces `Resolver(options)`. A `.hosted` engine writes the
+      operations that it needs, takes their completions, and gives its next deadline. No Rotor
+      type is in its API.
+    - A `.private` engine is the same driver over cocuyo's own Rotor adapter, on a loop of its own.
+    - The four renames of c4milo/cocuyo#65 land with it, so the engine's API changes once.
+
+    Rejected on 2026-11-11:
+
+    - The engine on Rotor v0.10.0 with no kinds, which takes `*rotor.SharedLoop` and reserves its
+      buffer groups. It is the smallest change. But a program on another loop still cannot host
+      DoT, DoQ or DoH, and a hosted kind later changes the API a second time.
+    - The engine on Rotor's completion records, pollers and tasks. colibri's decision 159 ruling 4
+      moves those parts of Rotor to an optional layer in a later release, so the engine would move
+      again.
+
+    It amends decision 27: the engine plugs into the caller's loop through a host, and not through
+    `*rotor.Loop`. Decision 28 stays: one engine on each loop, and one loop on each core.
+
 ## 17. Questions for the owner
 
 ### Settled on 2026-09-21
@@ -6447,6 +6468,24 @@ handshake used, so no example and no live check can say it.
     past which a try stays open in its lookup but is not keyed. Recommended: 64, since the worst
     case needs every lookup of the largest table to keep every try open. Answered on 2026-11-04:
     64, as recommended.
+
+124. **The engine's module.** `cocuyo_rotor` names Rotor, and a `.hosted` engine reads no Rotor
+    (§26). Recommended: `cocuyo_engine`, whose `rotor` import a consumer binds only when it names
+    `.private`.
+125. **An open that fails.** Today `init` and a port's replacement open their sockets at once, and
+    `init` returns `SocketFailed`. A host completes an open later (§26, What changes inside the
+    engine). Recommended: on `address_in_use` the engine opens again on port 0 at once, as today.
+    On another failure, each try that waits on the socket fails as a send fails, and the next turn
+    opens again.
+126. **What `.private` offers.** Recommended: what `.hosted` offers but `turn` and `complete`, plus
+    `next`. `next` ticks the loop until a result is ready, and returns null when no lookup is in
+    flight. The calls of `.private` take no `now_ns`, because the adapter reads the loop's clock.
+127. **An adapter for a shared Rotor loop.** colibri exports none, because the export puts
+    `*rotor.Loop` in its API. An example shows a program's own adapter. Recommended: the same, with
+    an example of a shared Rotor loop beside a timer of the program's own.
+128. **`group_buffers` on a `.hosted` engine.** The datagram memory is the host's, so the field sizes
+    the `.private` adapter alone. Recommended: `.hosted` refuses a value other than the default at
+    compile time, so a setting is never lost.
 
 ## 18. The cache
 
@@ -11778,3 +11817,221 @@ for each (question 25). They are c4milo/cocuyo#48 to c4milo/cocuyo#52, in the or
 - Under compact denial a name that does not exist can come back as NOERROR with no data, DO
   set or not (RFC 9824 §5). A lookup that does not validate then ends `NoData` where the name
   does not exist, and `AddressLookup` does not cancel the other family, as its rule 4 would.
+
+## 26. The engine on any loop
+
+The owner ruled on 2026-11-11 that the engine follows colibri's decision 159 (§16 decision 67).
+This section is the design that the ruling makes. It was written on 2026-11-11 from the engine at
+aee946b and from colibri's decision 159 at its v0.16.0. §17 questions 124 to 128 hold what the
+owner has not answered. Nothing under `io/` reads it yet.
+
+### Why the engine changes
+
+- `init` takes the caller's `*rotor.Loop`, and 17 files of `io/` read Rotor's types. A program on
+  libuv, libxev or `std.Io` cannot host the engine, so it cannot speak DoT, DoQ or DoH through
+  cocuyo.
+- Rotor v0.10.0 changes how libraries share a loop (its decisions 26 to 29). A library reserves
+  its buffer groups, so the engine's literal group ids no longer compile. A program that pins a
+  second Rotor gets a second loop type, and the compiler refuses it.
+- colibri's decision 159 ruling 4 moves Rotor's records, pollers and tasks to an optional layer in
+  a later release. An engine that does no I/O depends on none of them.
+- The library in `src/` does no I/O already. The engine adds the sockets, the frames of TCP, and
+  the sessions of DoT, DoQ and DoH. This design moves the sockets out to a host, and keeps the
+  rest in the engine.
+
+### The decision
+
+1. Each engine has two parts.
+   - The driver holds the table, the cache, the frames and the sessions. It does no I/O, reads
+     no clock and imports no Rotor. It writes the operations that it needs into memory that the
+     caller owns, and takes their completions.
+   - The host does each operation on its own loop, gives back each completion, and calls the
+     driver again at the driver's deadline.
+2. The engine is `Engine(options, kind)`, with `.hosted` or `.private` as its second comptime
+   argument, as colibri's `Client(capacity, kind)` has it. The kind has no public name.
+3. `.private` is the driver plus cocuyo's own Rotor adapter, in `io/rotor_host.zig`. The module
+   imports that file only when a program names `.private`. So both kinds run one code path, and
+   the twin tests the code that `.private` runs.
+4. The interface is a value contract. The engine never calls the host, and the host calls the
+   engine. So the engine holds no function pointer of the host.
+5. An operation's id uses the low 32 bits of a host's tag alone. `Options.tag` leaves, and a host
+   that shares its loop keeps the high bits for its own tags.
+
+### The public API
+
+The module adds seven names beside `Engine` and `Options`. They have the names and the shapes of
+colibri's, so one host maps both with little code. They are cocuyo's own types, because the
+engine's module never imports colibri.
+
+```zig
+/// A socket in the engine's table. The host maps it to its own handle.
+pub const SocketId = enum(u16) { _ };
+
+/// Names one operation in flight, in the low 32 bits of a host's tag. A generation byte makes a
+/// completion that the engine does not hold a halt.
+pub const OperationId = enum(u32) { _ };
+
+pub const Operation = struct {
+    id: OperationId,
+    kind: Kind,
+
+    pub const Kind = union(enum) {
+        /// Open a UDP socket of the family of `local`, and bind it to `local`. A size that is not
+        /// 0 sets the socket's buffer, and a host that cannot set it goes on. A port that another
+        /// socket holds fails with `address_in_use`.
+        open_datagram: struct { socket: SocketId, local: cocuyo.Endpoint, receive_bytes: u32, send_bytes: u32 },
+        /// Open a TCP socket of the family of `to`, and connect it.
+        connect: struct { socket: SocketId, to: cocuyo.Endpoint },
+        /// Read into the engine's buffer. A read of 0 bytes means that the peer closed its side.
+        receive: struct { socket: SocketId, buffer: []u8 },
+        send: struct { socket: SocketId, bytes: []const u8 },
+        /// Datagrams into the host's own memory. The host may complete it many times.
+        receive_datagram: struct { socket: SocketId },
+        send_datagram: struct { socket: SocketId, bytes: []const u8, to: cocuyo.Endpoint },
+        close: struct { socket: SocketId },
+        cancel: struct { target: OperationId },
+    };
+};
+
+pub const Completion = struct {
+    id: OperationId,
+    /// True while a `receive_datagram` stays in flight. The last completion has false.
+    more: bool = false,
+    result: Result,
+
+    pub const Result = union(enum) {
+        opened,
+        connected,
+        received: u32,
+        sent: u32,
+        /// The host's bytes. The engine reads them during `complete` and keeps no pointer.
+        datagram: struct { bytes: []const u8, from: cocuyo.Endpoint },
+        datagram_sent: u32,
+        closed,
+        canceled,
+        failed: Failure,
+    };
+};
+
+/// The engine's words for an I/O failure. The host maps its own errors onto them.
+pub const Failure = enum { refused, reset, unreachable_address, family_unsupported, address_in_use, closed, other };
+
+/// When the host calls `turn` next.
+pub const Wait = union(enum) { now, at_ns: u64, none };
+
+/// What `turn` wrote, and when the host calls it next.
+pub const Turn = struct { operations: u32, wait: Wait };
+```
+
+cocuyo adds `open_datagram`, `opened` and `address_in_use` to colibri's set. The engine opens its
+UDP sockets as it runs: a port from its seed for each server (RFC 5452 §9.2), and a new port after
+`Config.udp_queries_per_port` queries. colibri's host opens its UDP sockets before `init`. cocuyo
+has no `accept`, and it reads and sets no ECN codepoint.
+
+`Engine(options, .hosted)`:
+
+```zig
+pub const operations_max: u32; // the most operations in flight, which sizes a host's table
+pub const sockets_max: u16; // the size of the host's table of sockets
+pub const InitError = error{UdpPayloadTooLarge};
+
+pub fn init(self: *Self, config: *const cocuyo.Config, cache_memory: ?cache.Slices, seed: u64, now_ns: u64) InitError!void;
+/// Does the work of one turn, and writes up to `operations.len` operations.
+pub fn turn(self: *Self, now_ns: u64, operations: []Operation) Turn;
+/// Records one result. It reads a datagram at once, because the bytes are the host's. It writes
+/// no operation.
+pub fn complete(self: *Self, completion: *const Completion, now_ns: u64) void;
+/// Ends each lookup, and closes each socket at the next turns. It was `deinit`.
+pub fn stop(self: *Self, now_ns: u64) void;
+pub fn stopped(self: *const Self) bool;
+/// Asserts `stopped()`: each operation had its final completion. It was `close`.
+pub fn deinit(self: *Self) void;
+```
+
+- `start`, `cancel`, `cancel_all`, `reinit`, `take`, `in_flight`, `has_context`, `use_tls`,
+  `use_trust`, `use_quic` and `use_doh` stay as they are.
+- `apply` and `drive` leave, and `complete` and `turn` take their places.
+- `loop_operations` becomes `operations_max`, less the timer.
+- `Engine(options, .private)` has the same calls, but `turn` and `complete` are each a
+  `@compileError` with the engine's message. §17 question 126 asks what it adds.
+
+### The rules that bind a host
+
+The engine asserts each rule that it can see.
+
+1. Each operation gets exactly one final completion, with `more` false. An operation that a
+   `cancel` or a `close` ends gets one too, with `canceled` or its own result.
+2. The engine uses a socket's id again only after each operation on it had its final completion.
+3. One thread makes each call into an engine. A completion from another thread goes through a
+   queue that orders it by happens-before.
+4. After a `complete`, a `start`, a `cancel`, a `cancel_all`, a `reinit` or a `stop`, the host
+   calls `turn` before it waits.
+5. `now_ns` never goes back (CLAUDE.md non-negotiable 4). A completion with an id that the engine
+   does not hold is a halt.
+6. A datagram's bytes stay the host's. The engine reads them during `complete`.
+
+### What `turn` does
+
+1. It polls the table for what each lookup wants, as `drive` does today.
+2. When the deadline is due, it does the work that today's timer does.
+3. It opens, replaces and closes the sockets by the datagram's rules of §19 step 13, and steps the
+   sessions of TLS, QUIC and DoH.
+4. It writes the opens, the connects, the receives, the sends and the closes into `operations`.
+5. It returns `.now` while work is left or `operations` was full, `.at_ns` of the next deadline,
+   or `.none` with neither. An idle engine never makes the host spin.
+
+### What changes inside the engine
+
+- **Opens.** A socket opens through an operation, and its completion comes later. A UDP socket is
+  `opening` from its `open_datagram` to its completion. A query to its server waits, as a send
+  waits today while its buffer is lent. §17 question 125 asks what a failed open does.
+- **The timer leaves.** The deadline is `Turn.wait`. The timer's generation, which told a
+  cancelled timer from the current one, leaves with it.
+- **Memory.** The datagram group moves to the host, and to the adapter under `.private`. The TCP
+  chunks stay the engine's: a `receive` lends one chunk.
+- **`init` opens nothing.** It returns `UdpPayloadTooLarge` alone. `SocketFailed` and
+  `ReceiveFailed` leave `InitError`, and the first turn writes the opens.
+- **`reinit`** closes the old sockets and opens the new ones at the next turns.
+- **The renames of c4milo/cocuyo#65.** `Resolver` is `Engine`. `deinit` is `stop`, and `close` is
+  `deinit`. The library's `Action.wait` is `wait_until_ns`.
+
+### The Rotor adapter of `.private`
+
+- It is `io/rotor_host.zig`, the one file of the engine's module that imports Rotor. It holds the
+  `rotor.Loop` and its memory, the events, a table of `rotor.Descriptor` for each `SocketId`, a
+  table of `rotor.Handle` for each operation that a `cancel` can name, and the datagram group.
+- `init` makes the loop, reserves its two buffer groups, provides them, and calls the driver's
+  `init`.
+- Each pass calls `turn`, does each operation, and ticks with the wait that `turn` returned. Then
+  it builds a `Completion` from each `rotor.Event`, calls `complete`, and gives back each buffer.
+- An `open_datagram` and a `connect` open their sockets through `rotor.sync`, as the engine does
+  today, so their completions come in the same pass.
+- It runs on Rotor v0.10.0: `reserve_buffer_group` gives its groups, and `memory_bytes` takes a
+  pointer. It uses no completion record, poller, task or `SharedLoop`, as colibri's adapter does
+  not.
+
+### Tests and models
+
+- The tests of `zig build test-io` drive `.private` over the twin, so they test the driver and
+  the adapter both. The twin takes the surface of Rotor v0.10.0.
+- A fake host in memory tests the rules of a host: one final completion for each operation, a
+  completion for an id that is not held, `address_in_use`, a full `operations`, and `stop`.
+- The TLA+ model of the engine gains the open as an operation with a completion, and a socket that
+  is `opening`. A failed open replaces the model's `starved` state. The replays drive `.private`
+  over the twin, as they drive the engine today.
+- The Lean model of §5 renames `wait` to `wait_until_ns`, and no theorem changes.
+- The examples run `.private`. A new example hosts the engine on a shared Rotor loop beside a timer
+  of its own, and another hosts it in memory with no loop. The consumer fixture builds a `.hosted`
+  consumer with no Rotor, and a `.private` one.
+
+### Order and checks
+
+Each step is one commit, with its mutations in `docs/mutations.md`.
+
+1. This design, and the owner's answers to §17 questions 124 to 128.
+2. The model: the open as an operation in the TLA+ model, and the rename in the Lean model, each
+   with its mutants.
+3. The driver: `turn` and `complete`, with the fake host's tests.
+4. The adapter: `.private` over Rotor v0.10.0 and the twin, with each test of `zig build test-io`.
+5. The surface: the renames, the module, the examples, the README and the consumer fixture.
+6. The release, with one message to each consumer that names each break.
