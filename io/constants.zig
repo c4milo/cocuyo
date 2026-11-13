@@ -30,6 +30,12 @@ pub const operation_id_mask: u64 = std.math.maxInt(u32);
 pub const operation_generation_shift: u5 = 24;
 pub const operation_slot_mask: u32 = (1 << operation_generation_shift) - 1;
 
+/// Where the lane of a UDP receive sits in its origin's index, above the server's index. A server's
+/// two receives each have a lane, so the receive of a socket that drains and the receive of the
+/// socket after it are two places (docs/design.md §26, one operation for each place).
+pub const udp_lane_shift: u6 = 8;
+pub const udp_server_mask: u64 = (1 << udp_lane_shift) - 1;
+
 /// The buffers the datagram group holds. The octets of each buffer are `limits.buffer_bytes_max`.
 /// The group's id is the one the loop reserves for it (rotor decision 29).
 pub const group_buffers_default: usize = 64;

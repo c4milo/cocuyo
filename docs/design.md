@@ -6488,6 +6488,11 @@ handshake used, so no example and no live check can say it.
 128. **`group_buffers` on a `.hosted` engine.** The datagram memory is the host's, so the field sizes
     the `.private` adapter alone. Recommended: `.hosted` refuses a value other than the default at
     compile time, so a setting is never lost. Answered on 2026-11-11: as recommended.
+129. **The slack of the engine's operations.** `loop_operations` adds `loop_operations_slack_max`,
+    16, for the operations that had no bound. With one operation for each place (§26), the count of
+    places is exact, and the slack is `servers_max` and one: the draining receives and the timer.
+    Recommended: remove the limit, so that `loop_operations` falls by 7 and the table gives each
+    place its own slot. Answered on 2026-11-11: as recommended.
 
 ## 18. The cache
 
@@ -12002,6 +12007,21 @@ The engine asserts each rule that it can see.
 - **A failed open** (§17 question 125). On `address_in_use` the engine opens again at once on port
   0, as it does today when the seed's port is taken. On another failure, each try that waits on
   the socket fails as a failed send fails, and the next turn opens again.
+- **One operation for each place.** Each place in the engine holds at most one operation of a kind
+  in flight. The places are a lookup's send, each socket's receive, the timer, and the connect,
+  the receive and the send of each connection and each link. A place submits its next operation
+  of a kind only after the final event of the one before. A cancelled operation keeps its place
+  until that event (rotor decision 5, rule 1).
+  - Before this rule, a cancelled receive or timer stayed in flight beside the one after it. So
+    no count bounded the operations, and a full table was a refusal, which the model's `jammed`
+    state stood for.
+  - With the rule, the table gives each place its own slot, so an id's slot names its place.
+    `operations_max` is the count of places, and `loop_operations_slack_max` leaves (§17
+    question 129). `take` asserts that the place is free.
+  - The timer is one place. A deadline that moves cancels it, and the next timer waits for the
+    cancelled one's end.
+  - A port waits for its draining socket's receive to end before it is replaced again. So a
+    server has two receives at most: its current socket's and its draining socket's.
 - **The timer leaves.** The deadline is `Turn.wait`. The timer's generation, which told a
   cancelled timer from the current one, leaves with it.
 - **Memory.** The datagram group moves to the host, and to the adapter under `.private`. The TCP
@@ -12038,7 +12058,8 @@ The engine asserts each rule that it can see.
   completion for an id that is not held, `address_in_use`, a full `operations`, and `stop`.
 - The TLA+ model of the engine gains the open as an operation with a completion, and a socket that
   is `opening`. A failed open replaces the model's `starved` state, and the model loses its
-  `jammed` state, because no host refuses an operation. The replays drive `.private`
+  `jammed` state, because no host refuses an operation. An invariant holds each place to one
+  operation in flight. The replays drive `.private`
   over the twin, as they drive the engine today.
 - The Lean model of §5 renames `wait` to `wait_until_ns`, and no theorem changes.
 - The examples run `.private`. A new example hosts the engine on a shared Rotor loop beside a timer
@@ -12057,26 +12078,29 @@ the code that it describes, because CI's `spec` job replays the model's walks ag
    replays. Done on 2026-11-11.
 3. Rotor v0.10.0: the twin takes its surface, and the engine reserves its buffer groups. Done on
    2026-11-11.
-4. The driver and the adapter, in seven sub-steps. Each sub-step is one commit, and the gate
-   passes after each. Only sub-steps 3 and 5 change the model.
+4. The driver and the adapter, in eight sub-steps. Each sub-step is one commit, and the gate
+   passes after each. Only sub-steps 2, 3 and 6 change the model.
    1. Operation ids. Each operation that the engine submits takes an `OperationId` from a table
       of the operations in flight. The id is the low 32 bits of its `user_data`. `apply` routes
       each event by the table. The generations of the timer and of the receives leave, because
-      an id tells a stale event from the current one.
-   2. Socket ids and the adapter. The engine names each socket by its `SocketId`, and each
-      handler takes a `*const Completion`. `io/rotor_host.zig` holds the descriptors and the
-      datagram group, calls `rotor.sync`, and builds each `Completion` from a `rotor.Event`.
-   3. No refused operation. A submit that the loop refuses stays with the adapter, which submits
-      it again at the next drive. The model loses its `jammed` state.
+      an id tells a stale event from the current one. Done on 2026-11-11.
+   2. One operation for each place, as "What changes inside the engine" says. The model holds
+      each place to one operation in flight, and an invariant checks it. Done on 2026-11-12.
+   3. No refused operation. A submit that the loop refuses keeps its id and waits in a queue of
+      the table. The next drive submits it again. Sub-step 5 moves the queue into the adapter.
+      The model loses its `jammed` state.
    4. The stream's receive lends a chunk. A TCP `receive` reads into one chunk of the engine's
       pool, in place of Rotor's group.
-   5. Opens and closes as operations. A socket opens through `open_datagram` or `connect`, and
+   5. Socket ids and the adapter. The engine names each socket by its `SocketId`, and each
+      handler takes a `*const Completion`. `io/rotor_host.zig` holds the descriptors and the
+      datagram group, calls `rotor.sync`, and builds each `Completion` from a `rotor.Event`.
+   6. Opens and closes as operations. A socket opens through `open_datagram` or `connect`, and
       closes through `close`. A failed open follows §17 question 125, and `init` opens nothing.
       The model gains the open as an operation, and a failed open replaces `starved`.
-   6. `turn` and `complete`. The driver writes its operations into the caller's memory, and takes
+   7. `turn` and `complete`. The driver writes its operations into the caller's memory, and takes
       each completion. The timer leaves. The adapter calls `turn` and `complete` in place of
       `drive` and `apply`.
-   7. The fake host. Tests in memory hold the driver to the rules of a host.
+   8. The fake host. Tests in memory hold the driver to the rules of a host.
 5. The surface: `Engine(options, kind)`, in which `.private` owns its loop and adds `next`. Then
    the renames, the module, the examples, the README and the consumer fixture.
 6. The release, with one message to each consumer that names each break.

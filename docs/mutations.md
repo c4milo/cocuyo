@@ -12256,3 +12256,63 @@ mutations -- engine` ran each row.
 | CL7 | a send keeps no handle | `zig build test-io` | `CAUGHT` |
 | RS29 | a send the loop refuses during the handshake gives the reason handshake | `zig build test-io` | `CAUGHT` |
 | DL7 | a link's send keeps no handle | `zig build test-io` | `CAUGHT` |
+
+## One operation for each place
+
+2026-11-12, docs/design.md §26 step 4.2. Each place of the engine holds one operation in flight at
+most: a lookup's send, each socket's receive, the timer, and the connect, the receive and the send
+of each connection and each link. A place submits its next operation only after the final event of
+the one before. Until then a cancelled receive or timer stayed in flight beside the one after it,
+so no count bounded the operations. The table now gives each place its own slot, and the count of
+places replaces `loop_operations_slack_max` (§17 question 129). The model checks the rule as an
+invariant, and its walks were written again (spec/README.md). OI1 and OI6 left with the free list
+of slots and the second timer that they broke. W1 and W6 name lines that changed.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| OP1 | a connection's receive is armed while one of an earlier opening is in flight | the engine model's short walks | `CAUGHT` |
+| OP2 | a QUIC connection's receive is armed while one of an earlier opening is in flight | `zig build test-io` | `CAUGHT` |
+| OP3 | a link's receive is armed while one of an earlier opening is in flight | the engine model's short walks | `CAUGHT` |
+| OP4 | a socket's receive takes the first lane, held or free | `zig build test-io` | `CAUGHT` |
+| OP5 | a port is replaced while the receive of a socket before it is in flight | `zig build test-io` | `CAUGHT` |
+| OP6 | a deadline that moves arms a timer beside the one it cancelled | `zig build test-io` | `CAUGHT` |
+| OP7 | the end of a cancelled timer tells each connection that its deadline came | `zig build test-io` | `CAUGHT` |
+| OP8 | a receive's final event leaves its socket marked as receiving | `zig build test-io` | `CAUGHT` |
+| OP9 | a server's two receives share one place | `zig build test-io` | `CAUGHT` |
+| OP10 | a connection's connect and receive share one place | `zig build test-io` | `CAUGHT` |
+| W1 | a port that has carried its share is never replaced | the engine model's short walks | `CAUGHT` |
+| W6 | a draining socket's ended receive is armed on the current one | the engine model's short walks | `CAUGHT` |
+
+### What ran
+
+- TLC on a copy of the model, with the check "one operation for each place" alone, found it broken
+  at the fifth state of `Engine_tcp_1_1_bound_4_1`. A connection fails and connects again, and its
+  receive is armed beside the cancelled one. With the guards, the copy held each configuration of
+  one lookup or one server that CI checks on each push.
+- `zig build tla -- walks 1 10 41` wrote the short walks: 6 of 130 changed. `zig build tla -- walks
+  1 2000 201` wrote the full run, in 2 hours while other work ran: 3,901 of 26,000 walks changed.
+  The replay of the full run agrees with the engine over 5,226,000 events.
+- `zig build mutations -- engine --walks <full run>` ran 190 rows, in 2 hours and 23 minutes: each
+  row that the walks catch, and each row whose edit names a file that changed. Each was `CAUGHT`
+  but six:
+  - RW13 and NJ14, which the picks missed. The full run caught them first at walks 4075 and 12505.
+  - OP1 and OP3, which `zig build test-io` missed. The walks are their check.
+  - OP5 and OP7, whose edits did not compile, since each left a parameter unused. Each edit now
+    compiles.
+- The full run named the walks that first catch each row the short walks miss. The picks are those
+  nineteen now: walks 5, 4075, 12505 and 16058 came in, and walks 8, 13, 4020, 4212, 8023, 12392,
+  14608 and 16135 left. Six of the twenty-three picks changed before that.
+- With the new picks, `zig build mutations -- engine --walks <full run>` ran OP1, OP3, OP5, OP7 and
+  each row that the picks catch, 37 rows, in 23 minutes. Each was `CAUGHT` but OP5, which `zig
+  build test-io` missed. The short walks caught OP1 at walk 42 and OP3 at walk 5.
+- Against the walks, the short walks miss OP5, and the full run caught it first at walk 20541.
+- A test came for OP5: a port is replaced only once the receive that its closed draining socket
+  left has ended. With OP5 the test fails, since the port is replaced at the drive that closes the
+  draining socket. `zig build mutations -- engine OP5` caught it.
+- The rig's type scored 16, and `io_sim_test.zig` passed 500 lines. So the wait for a cancelled
+  timer's end left the type, and the timer's tests moved to `io_sim_timer_test.zig`. The place map
+  named its places. `zig build mutations -- engine OP6 OP7 OP8 OP9 OP10` caught each after that.
+- `zig build test` passes, and so do `zig build test-cares` and `zig build example-threads-rotor`.
+- Last and alone in the tree, the full `zig build tla`, in 22 hours while other projects' builds
+  ran. Each of the 16 configurations holds, with the counts in spec/README.md, and each mutant is
+  violated.

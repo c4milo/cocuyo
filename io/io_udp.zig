@@ -22,6 +22,9 @@ pub const Socket = struct {
     /// The id of the receive this socket armed last. The end of a receive that a replaced socket
     /// left behind carries another id, and there is nothing to do about it.
     receive_id: ?OperationId = null,
+    /// The lane of the receive this socket armed last: which of its server's two places it holds
+    /// (docs/design.md §26, one operation for each place).
+    lane: u1 = 0,
     /// Queries sent from this port, for `Config.udp_queries_per_port`.
     sent: u32 = 0,
     /// Which opening of a socket this is, out of the table's count: what a lookup's query
@@ -113,10 +116,18 @@ pub const Sockets = struct {
     }
 
     /// Whether server `index`'s port has carried its share and is free to be replaced: no older
-    /// one still drains.
-    pub fn is_due(self: *const Sockets, index: u8) bool {
+    /// one still drains, and no receive of an older socket is in flight. A server holds two
+    /// receives at most, so the socket after this one needs a lane that no older socket's receive
+    /// holds (docs/design.md §26, one operation for each place).
+    pub fn is_due(self: *const Sockets, engine: anytype, index: u8) bool {
         assert(index < self.count);
-        return self.items[index].retiring and !self.draining[index].open;
+        const current = &self.items[index];
+        if (!current.retiring or self.draining[index].open) return false;
+        for (0..limits.udp_receives_per_server_max) |lane| {
+            if (current.receiving and current.lane == lane) continue;
+            if (operations.busy(engine, receive_origin(index, @intCast(lane)))) return false;
+        }
+        return true;
     }
 
     /// Replaces server `index`'s port (c-ares `udp_max_queries`): a new socket takes every
@@ -124,7 +135,7 @@ pub const Sockets = struct {
     /// queries (the datagram's rule 4). The new socket is opened first, so when it cannot be the
     /// old one stays in use and the next drive tries again.
     pub fn rotate(self: *Sockets, engine: anytype, index: u8) error{SocketFailed}!void {
-        assert(self.is_due(index));
+        assert(self.is_due(engine, index));
         const config = engine.config;
         const fresh = try self.open_port(config, config.servers[index].endpoint.address.family);
         self.draining[index] = self.items[index];
@@ -159,25 +170,32 @@ pub const Sockets = struct {
     }
 
     /// Arms the multishot receive of one of server `index`'s sockets, which every datagram to
-    /// that socket arrives on. Its origin names the server, and the socket keeps its id.
+    /// that socket arrives on. Its origin names the server and a lane that no receive holds, and
+    /// the socket keeps its id. With both lanes held, by the other socket's receive and by one
+    /// that a closed socket left behind, it waits for the drive after that one's end (§26, one
+    /// operation for each place).
     pub fn arm(self: *Sockets, engine: anytype, socket: *Socket, index: u8) error{ReceiveFailed}!void {
         assert(index < self.count);
         assert(socket.open);
+        assert(!socket.receiving);
+        const lane = for (0..limits.udp_receives_per_server_max) |lane| {
+            const free: u1 = @intCast(lane);
+            if (!operations.busy(engine, receive_origin(index, free))) break free;
+        } else return;
         const operation: rotor.Operation = .receive_from(undefined, socket.descriptor, self.group);
-        const submitted = operations.submit(engine, .{ .kind = .udp_receive, .index = index }, operation) orelse {
-            socket.receiving = false;
+        const submitted = operations.submit(engine, receive_origin(index, lane), operation) orelse
             return error.ReceiveFailed;
-        };
         socket.receive_id = submitted.id;
         socket.receive = submitted.handle;
         socket.receiving = true;
+        socket.lane = lane;
     }
 
-    /// The socket that the receive `id` on server `index` names, or null for a receive that a
-    /// socket that is gone left behind: no socket of the server keeps its id.
+    /// The socket that the receive `id` with origin index `index` names, or null for a receive
+    /// that a socket that is gone left behind: no socket of the server keeps its id.
     pub fn find(self: *Sockets, id: OperationId, index: usize) ?struct { server: u8, socket: *Socket, which: Which } {
-        if (index >= self.count) return null;
-        const server: u8 = @intCast(index);
+        const server: u8 = @intCast(index & constants.udp_server_mask);
+        if (server >= self.count) return null;
         if (self.items[server].receive_id == id) {
             return .{ .server = server, .socket = &self.items[server], .which = .current };
         }
@@ -220,6 +238,11 @@ pub const Sockets = struct {
         }
     }
 };
+
+/// The origin of a receive of server `server`'s, in lane `lane`.
+pub fn receive_origin(server: u8, lane: u1) operations.Origin {
+    return .{ .kind = .udp_receive, .index = (@as(u64, lane) << constants.udp_lane_shift) | server };
+}
 
 /// A port in the Dynamic range from one word of the seed (RFC 6335 §6).
 fn port_from(word: u64) u16 {

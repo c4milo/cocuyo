@@ -288,7 +288,9 @@ pub fn token_of(world: anytype, loop_slot: u32) Token {
             const found = world.engine.sockets.find(@enumFromInt(@as(u32, @truncate(user_data))), index);
             const draining = found != null and found.?.which == .draining;
             const letter: u8 = if (draining) 'M' else 'L';
-            break :blk .{ .letter = letter, .target = index, .current = found != null };
+            // The origin's index holds the receive's lane above its server (docs/design.md §26).
+            const server = index & io.constants.udp_server_mask;
+            break :blk .{ .letter = letter, .target = server, .current = found != null };
         },
         .quic_send, .quic_receive => |kind| request_token(world, kind, index),
         .doh_connect, .doh_send, .doh_receive => |kind| link_token(world, kind, index),

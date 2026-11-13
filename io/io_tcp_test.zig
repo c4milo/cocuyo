@@ -402,7 +402,7 @@ pub fn send_of(rig: anytype, index: usize) u64 {
 
 /// The `user_data` of the operation in flight for `origin`, or null for none.
 pub fn in_flight(rig: anytype, origin: io.Origin) ?u64 {
-    const id = rig.engine.operations.find(origin) orelse return null;
+    const id = rig.engine.operations.find(@TypeOf(rig.engine).place_of(origin), origin) orelse return null;
     return @TypeOf(rig.engine).user_data(id);
 }
 

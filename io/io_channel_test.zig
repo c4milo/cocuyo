@@ -40,10 +40,12 @@ pub fn channel_of(rig: *Rig, server: u8) *rotor.channel.Channel {
 }
 
 /// Has server `server`'s channel say `step` at the engine's next read, and lets that read come: the
-/// channel is due at once, so the engine's timer fires for it.
+/// channel is due at once, so the engine's timer fires for it, once the timer that the deadline
+/// moved away from has ended.
 pub fn tell(rig: *Rig, server: u8, step: Step) !void {
     channel_of(rig, server).say(step, rig.loop.now());
     rig.engine.drive(rig.loop.now());
+    try rig.settle_timer();
     _ = try rig.step(fixtures.channel_read_ns);
 }
 

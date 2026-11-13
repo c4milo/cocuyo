@@ -1095,6 +1095,64 @@ catch DL10 and DL11. They miss DL12, the shut at the bound that reads no channel
 caught it first at walk 12. The full run now catches CE12 first at walk 3, where it caught it
 first at walk 4 before. So walks 3 and 12 came in, walk 4 left, and the picks are twenty-two now.
 
+On 2026-11-11 each place of the engine came to hold one operation in flight at most
+(docs/design.md §26, one operation for each place). Until then a cancelled receive stayed in
+flight beside the receive after it: one of a connection's earlier opening, of a QUIC connection's
+or a link's, or of a draining socket that closed. So no count bounded the operations, and the model
+held the same gap. The change came to the model first:
+
+- `Holds` says whether an operation of a kind on a target is in flight, current or cancelled.
+- `ArmReceive`, `QListen` and `LListen` arm no receive while one of an earlier opening holds the
+  place. `Listen` arms none while a receive holds the socket's place.
+- `Rotate` replaces no port while the receive of a draining socket that closed is in flight. So a
+  server holds two receives at most.
+- "listening" takes a receive of an earlier opening as the place's, and "rotated" takes a port
+  that waits for such a receive as replaced. The next drive after that receive's end arms the
+  next.
+- The check "one operation for each place" holds the rule. No two operations in flight share a
+  kind, a target and a draining socket. TLC holds fifty-two checks now.
+- `mutants/RQ11` arms its second receive past the guard of `QListen`, so it still breaks "receive
+  current".
+
+A first form added the check alone. TLC found it broken at the fifth state of
+`Engine_tcp_1_1_bound_4_1`: a connection fails and connects again, and its receive is armed beside
+the cancelled one.
+
+The model has no timer. The code holds its timer to one in flight too: a deadline that moves
+cancels the timer, and the next timer waits for the cancelled one's end.
+
+`zig build tla` checked each configuration on 2026-11-12, the nightly ones too. It took 22 hours
+on an Apple M1 Pro while other projects' builds ran. Each configuration holds, and each mutant is
+violated. The counts:
+
+| Configuration | States |
+| --- | --- |
+| `Engine_channel_1_1_bound_3_1` | 1,795,672 |
+| `Engine_channel_1_2_bound_3_1` | 34,423,896 |
+| `Engine_request_1_1_bound_3_1` | 12,366 |
+| `Engine_request_1_2_bound_3_1` | 223,860 |
+| `Engine_request_2_1_bound_3_1` | 7,783,030 |
+| `Engine_tcp_1_1_bound_4_1` | 14,576 |
+| `Engine_tcp_2_1_bound_4_1` | 615,029 |
+| `Engine_tcp_2_2_bound_4_1` | 3,522,427 |
+| `Engine_tls_1_2_bound_2_1` | 265,006 |
+| `Engine_tls_1_2_bound_3_1` | 6,462,178 |
+| `Engine_tls_2_1_bound_2_1` | 145,448 |
+| `Engine_tls_2_2_bound_2_1` | 22,008,070 |
+| `Engine_truncated_1_1_bound_4_1` | 809,584 |
+| `Engine_udp_1_1_bound_3_1` | 42,181 |
+| `Engine_udp_1_1_bound_4_1` | 156,939 |
+| `Engine_udp_2_1_bound_4_1` | 19,949,045 |
+
+Of the 130 short walks, 6 changed. Of the full run's 26,000 walks, 3,901 changed: 533 over DoH,
+1,774 over DoQ, 1,132 over TCP, 297 over TLS and 165 over UDP. Six of the twenty-three picks
+changed. The replay of the full run agrees with the engine over 5,226,000 events.
+
+`zig build mutations -- engine` ran each row that the walks catch against the new full run, and
+each row whose edit names a file that changed (docs/mutations.md). The picks missed RW13 and NJ14,
+which the full run caught first at walks 4075 and 12505. The first catches of other rows moved
+too. So walks 5, 4075, 12505 and 16058 came in, eight walks left, and the picks are nineteen now.
+
 ### The walks TLC takes
 
 `tla/engine/EngineTrace.tla` runs the specification in TLC's simulation mode, which takes seeded
@@ -1178,7 +1236,7 @@ compares the walk's whole state after each.
   It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
   of forty events in each of the thirteen engine configurations.
-  `tools/spec_replay/engine_picks.txt` holds twenty-two walks of the full run, which `engine_picks`
+  `tools/spec_replay/engine_picks.txt` holds nineteen walks of the full run, which `engine_picks`
   in `build/spec.zig` names. Each is where the full run caught a mutation of the engine that the
   short walks miss (docs/mutations.md). The gate also holds `tools/spec_replay/walk_gate.txt`, the
   forward walk with two candidates and both families and every reverse configuration. It needs

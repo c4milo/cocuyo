@@ -31,7 +31,7 @@ pub fn apply(self: anytype, event: rotor.Event, now_ns: u64) bool {
     switch (origin.kind) {
         .udp_send => send_module.on_event(self, index, event, now_ns),
         .udp_receive => on_receive_event(self, id, index, event, now_ns),
-        .timer => on_timer_event(self, id, now_ns),
+        .timer => on_timer_event(self, id, event, now_ns),
         .tcp_connect => tcp.on_connect_event(self, index, event, now_ns),
         .tcp_send => tcp_queue.on_send_event(self, index, event, now_ns),
         .tcp_receive => tcp.on_receive_event(self, index, event, now_ns),
@@ -46,16 +46,18 @@ pub fn apply(self: anytype, event: rotor.Event, now_ns: u64) bool {
     return true;
 }
 
-/// The current timer fired, or ended: it is gone, and so is the deadline it stood for, so the
-/// next drive arms one again even for a deadline the caller's clock has not reached yet. Each
-/// QUIC connection whose deadline has come is told (docs/design.md §24, request rule 11). The
-/// end of an earlier timer, one the deadline moved away from, is nothing: its id says so, and
-/// the current timer is left as it is.
-fn on_timer_event(self: anytype, id: OperationId, now_ns: u64) void {
-    if (self.timer_id != id) return;
+/// The timer fired, or ended: it is gone, and so is the deadline it stood for, so the next drive
+/// arms one again even for a deadline the caller's clock has not reached yet. Each QUIC
+/// connection whose deadline has come is told (docs/design.md §24, request rule 11). A timer that
+/// the deadline moved away from ends `canceled`, and tells nobody: the next drive arms the timer
+/// of the deadline that moved (§26, one operation for each place).
+fn on_timer_event(self: anytype, id: OperationId, event: rotor.Event, now_ns: u64) void {
+    // The timer is one place, so the table holds one timer's id at most.
+    assert(self.timer_id == id);
     self.timer_id = null;
     self.timer_handle = null;
     self.timer_due_ns = null;
+    _ = event.outcome() catch return;
     request_events.expire_due(self, now_ns);
     channel_module.expire_due(self, now_ns);
 }
@@ -73,9 +75,9 @@ fn on_receive_event(self: anytype, id: OperationId, index: usize, event: rotor.E
     if (event.flags.buffer) deliver(self, event, now_ns);
     // A multishot that ended is armed again on the same socket, current or draining, unless the
     // engine is closing; one the loop refuses is asked for again at the next drive.
-    if (event.is_final() and !self.closing) {
-        self.sockets.arm(self, found.socket, found.server) catch {};
-    }
+    if (!event.is_final()) return;
+    found.socket.receiving = false;
+    if (!self.closing) self.sockets.arm(self, found.socket, found.server) catch {};
 }
 
 /// Hands a datagram to the table, whatever its length, and its buffer back to the group. One

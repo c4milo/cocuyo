@@ -16,12 +16,17 @@ Listening(st, v, draining) ==
 
 Receiving(st, k) == \E op \in DOMAIN st.ops : op.kind = "receive" /\ op.target = k /\ op.current
 
-\* Arms a receive on server v's socket unless the loop refuses it; the next drive asks again.
+\* Arms a receive on server v's socket unless the loop refuses it, or a receive of a closed socket
+\* holds the place; the next drive asks again (docs/design.md §26, one operation for each place).
 Listen(st, v, draining) ==
-    IF st.jammed THEN st
+    IF st.jammed \/ Holds(st, "receiveFrom", v, draining) THEN st
     ELSE [st EXCEPT !.ops = Add(@, [Op("receiveFrom", v) EXCEPT !.draining = draining])]
 
-ArmReceive(st, k) == IF st.jammed THEN st ELSE [st EXCEPT !.ops = Add(@, Op("receive", k))]
+\* Arms connection k's receive unless the loop refuses it, or a receive of an earlier opening holds
+\* the place.
+ArmReceive(st, k) ==
+    IF st.jammed \/ Holds(st, "receive", k, FALSE) THEN st
+    ELSE [st EXCEPT !.ops = Add(@, Op("receive", k))]
 
 -------------------------------------------------------------------------------
 \* Sockets.
@@ -51,9 +56,10 @@ CloseDrain(st, v) ==
             THEN [op EXCEPT !.current = FALSE] ELSE op)]
     IN [AgeSockets(cancelled, v, "draining", "gone") EXCEPT !.socks[v].draining = FALSE]
 
-\* Replaces server v's port unless opens fail now; the old one drains with its receive.
+\* Replaces server v's port unless opens fail now, or the receive of a draining socket before it is
+\* still in flight; the old one drains with its receive. So a server holds two receives at most.
 Rotate(st, v) ==
-    IF st.starved THEN st
+    IF st.starved \/ Holds(st, "receiveFrom", v, TRUE) THEN st
     ELSE
     LET moved == [st EXCEPT !.ops = MapBag(@, LAMBDA op :
             IF op.kind = "receiveFrom" /\ op.target = v /\ ~op.draining /\ op.current

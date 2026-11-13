@@ -125,7 +125,9 @@ ShutR(st, v) ==
         IF op.kind \in {"qsend", "qrecv"} /\ op.target = v THEN [op EXCEPT !.current = FALSE]
         ELSE op)] EXCEPT !.rconns[v] = [NoRConn EXCEPT !.lent = lent]]
 
-QListen(st, v) == IF st.jammed THEN st ELSE [st EXCEPT !.ops = Add(@, Op("qrecv", v))]
+QListen(st, v) ==
+    IF st.jammed \/ Holds(st, "qrecv", v, FALSE) THEN st
+    ELSE [st EXCEPT !.ops = Add(@, Op("qrecv", v))]
 
 QReceiving(st, v) == \E op \in DOMAIN st.ops : op.kind = "qrecv" /\ op.target = v /\ op.current
 
@@ -369,8 +371,10 @@ RecvCurrent(st) ==
         LET armedRecv == Count(st.ops, LAMBDA op : op.kind = "qrecv" /\ op.target = v /\ op.current)
         IN armedRecv <= 1 /\ (st.rconns[v].stage # "closed" \/ armedRecv = 0)
 
-\* After a drive with nothing refused, every open connection has its receive armed.
-RListening(st) == \A v \in 0..RServers - 1 : st.rconns[v].stage = "closed" \/ QReceiving(st, v)
+\* After a drive with nothing refused, every open connection has a receive in flight: its own, or
+\* one of an earlier opening, whose end lets the next drive arm the connection's.
+RListening(st) ==
+    \A v \in 0..RServers - 1 : st.rconns[v].stage = "closed" \/ Holds(st, "qrecv", v, FALSE)
 
 \* A connection that opened resuming spent its server's ticket (request rule 10).
 RTicketSpent(prior, st) ==

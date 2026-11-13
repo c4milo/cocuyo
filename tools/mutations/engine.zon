@@ -364,7 +364,7 @@
         .id = "W1",
         .what = "a port that has carried its share is never replaced",
         .edits = .{
-            .{ .file = "io/io_udp.zig", .old = "        return self.items[index].retiring and !self.draining[index].open;", .new = "        return self.items[index].retiring and !self.draining[index].open and index > constants.receive_index_mask;" },
+            .{ .file = "io/io_udp.zig", .old = "        if (!current.retiring or self.draining[index].open) return false;", .new = "        if (!current.retiring or self.draining[index].open or index < cocuyo.limits.servers_max) return false;" },
         },
         .caught_by = .short_walks,
     },
@@ -409,7 +409,7 @@
         .id = "W6",
         .what = "a draining socket's ended receive is armed on the current one",
         .edits = .{
-            .{ .file = "io/io_events.zig", .old = "        self.sockets.arm(self, found.socket, found.server) catch {};", .new = "        self.sockets.arm(self, &self.sockets.items[found.server], found.server) catch {};" },
+            .{ .file = "io/io_events.zig", .old = "    if (!self.closing) self.sockets.arm(self, found.socket, found.server) catch {};", .new = "    if (!self.closing) self.sockets.arm(self, &self.sockets.items[found.server], found.server) catch {};" },
         },
         .caught_by = .short_walks,
     },
@@ -8581,15 +8581,6 @@
     },
     .{
         .section = "Operation ids",
-        .id = "OI1",
-        .what = "the table of operations gives a slot past its last",
-        .edits = .{
-            .{ .file = "io/io_operations.zig", .old = "            if (self.free_count == 0) return null;\n", .new = "" },
-        },
-        .caught_by = .{ .step = "test-io" },
-    },
-    .{
-        .section = "Operation ids",
         .id = "OI2",
         .what = "a freed slot's next id is the id that it had",
         .edits = .{
@@ -8626,15 +8617,6 @@
     },
     .{
         .section = "Operation ids",
-        .id = "OI6",
-        .what = "the end of a replaced timer is taken for the current timer's",
-        .edits = .{
-            .{ .file = "io/io_events.zig", .old = "    if (self.timer_id != id) return;", .new = "    _ = id;" },
-        },
-        .caught_by = .{ .step = "test-io" },
-    },
-    .{
-        .section = "Operation ids",
         .id = "OI7",
         .what = "a socket's receive is the current one whatever its id",
         .edits = .{
@@ -8648,6 +8630,96 @@
         .what = "the twin hands back the event due first in place of the operation's end",
         .edits = .{
             .{ .file = "src/sim/sim_loop.zig", .old = "        return loop.take_pending(loop.pending_count - 1);", .new = "        return loop.take_pending(loop.first_due().?);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "One operation for each place",
+        .id = "OP1",
+        .what = "a connection's receive is armed while one of an earlier opening is in flight",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (operations.busy(self, origin_of(self, .tcp_receive, at))) return;\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "One operation for each place",
+        .id = "OP2",
+        .what = "a QUIC connection's receive is armed while one of an earlier opening is in flight",
+        .edits = .{
+            .{ .file = "io/io_request_connection_tend.zig", .old = "    if (operations.busy(self, origin)) return;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "One operation for each place",
+        .id = "OP3",
+        .what = "a link's receive is armed while one of an earlier opening is in flight",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    if (operations.busy(self, origin_of(self, .doh_receive, server, at))) return;\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "One operation for each place",
+        .id = "OP4",
+        .what = "a socket's receive takes the first lane, held or free",
+        .edits = .{
+            .{ .file = "io/io_udp.zig", .old = "            if (!operations.busy(engine, receive_origin(index, free))) break free;", .new = "            if (free == 0 or !operations.busy(engine, receive_origin(index, free))) break free;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "One operation for each place",
+        .id = "OP5",
+        .what = "a port is replaced while the receive of a socket before it is in flight",
+        .edits = .{
+            .{ .file = "io/io_udp.zig", .old = "            if (operations.busy(engine, receive_origin(index, @intCast(lane)))) return false;", .new = "            if (operations.busy(engine, receive_origin(index, @intCast(lane)))) continue;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "One operation for each place",
+        .id = "OP6",
+        .what = "a deadline that moves arms a timer beside the one it cancelled",
+        .edits = .{
+            .{ .file = "io/io_drive.zig", .old = "        self.timer_due_ns = null;\n        return;\n    }\n    assert(self.timer_handle == null);\n", .new = "        self.timer_due_ns = null;\n    }\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "One operation for each place",
+        .id = "OP7",
+        .what = "the end of a cancelled timer tells each connection that its deadline came",
+        .edits = .{
+            .{ .file = "io/io_events.zig", .old = "    _ = event.outcome() catch return;", .new = "    _ = event;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "One operation for each place",
+        .id = "OP8",
+        .what = "a receive's final event leaves its socket marked as receiving",
+        .edits = .{
+            .{ .file = "io/io_events.zig", .old = "    found.socket.receiving = false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "One operation for each place",
+        .id = "OP9",
+        .what = "a server's two receives share one place",
+        .edits = .{
+            .{ .file = "io/io_places.zig", .old = "server_of(origin.index) + lane_of(origin.index),", .new = "server_of(origin.index) + 0 * lane_of(origin.index)," },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "One operation for each place",
+        .id = "OP10",
+        .what = "a connection's connect and receive share one place",
+        .edits = .{
+            .{ .file = "io/io_places.zig", .old = "                .tcp_connect => .connect,", .new = "                .tcp_connect => .receive," },
         },
         .caught_by = .{ .step = "test-io" },
     },

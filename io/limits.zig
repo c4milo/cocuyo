@@ -16,9 +16,11 @@ pub const buffer_bytes_max: usize = 2048;
 /// longer datagram arrives cut (docs/design.md §19 step 13, the datagram's rules 6 and 7).
 pub const udp_payload_bytes_max: usize = rotor.datagram.payload_capacity(buffer_bytes_max, constants.group_options);
 
-/// The most operations and entries the loop is asked to hold for one engine: a receive per
-/// server, a send per lookup, one timer, and slack for the closes.
-pub const loop_operations_slack_max: usize = 16;
+/// What one server asks of the loop over UDP: the receive of its current socket, and the receive
+/// of the socket that drains after its port was replaced (docs/design.md §19 step 13, the
+/// datagram's rule 4). A port is replaced only once no receive of a socket before it is in
+/// flight (§26, one operation for each place).
+pub const udp_receives_per_server_max: usize = 2;
 
 /// The longest message a length prefix can describe (RFC 7766 §8), which is what one connection
 /// assembles its chunks into. A stream exists for the answers a datagram cannot carry, so the

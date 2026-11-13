@@ -29,8 +29,11 @@ LinkOps == {"lsend", "lrecv", "lconnect"}
 LReceiving(st, i) == \E op \in DOMAIN st.ops : op.kind = "lrecv" /\ op.target = i /\ op.current
 LSending(st, i) == \E op \in DOMAIN st.ops : op.kind = "lsend" /\ op.target = i /\ op.current
 
-\* Arms link i's receive unless the loop refuses it; the next drive asks again.
-LListen(st, i) == IF st.jammed THEN st ELSE [st EXCEPT !.ops = Add(@, Op("lrecv", i))]
+\* Arms link i's receive unless the loop refuses it, or a receive of an earlier opening holds the
+\* place; the next drive asks again.
+LListen(st, i) ==
+    IF st.jammed \/ Holds(st, "lrecv", i, FALSE) THEN st
+    ELSE [st EXCEPT !.ops = Add(@, Op("lrecv", i))]
 
 \* Link i's socket closes: its current operations are left to the loop to end, and its buffer and
 \* its address stay lent until their operations' final events, whichever incarnation made them
@@ -316,8 +319,10 @@ ShutTakesNone(before, st) ==
 ChanHeldWhileSending(st) ==
     \A v \in 0..CServers - 1 : st.chans[v].held = {} \/ \E i \in LinksOf(v) : LSending(st, i)
 
-\* After a drive with nothing refused, every running link has its receive armed.
-LListening(st) == \A i \in 0..2 * CServers - 1 : st.links[i].state # "running" \/ LReceiving(st, i)
+\* After a drive with nothing refused, every running link has a receive in flight: its own, or one
+\* of an earlier opening, whose end lets the next drive arm the link's.
+LListening(st) ==
+    \A i \in 0..2 * CServers - 1 : st.links[i].state # "running" \/ Holds(st, "lrecv", i, FALSE)
 
 \* A link whose connection started at this event, resuming, spent its transport's ticket (rule 23).
 LinkTicketSpent(before, st) ==

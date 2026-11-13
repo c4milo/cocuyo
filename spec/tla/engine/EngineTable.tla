@@ -48,6 +48,11 @@ Op(kind, target) == [kind |-> kind, target |-> target, current |-> TRUE, drainin
                      buffer |-> {}]
 IsSend(kind) == kind \in {"send", "sendTo"}
 
+\* Whether an operation of `kind` on `target` is in flight, current or cancelled. Its place is taken
+\* until its final event (docs/design.md §26, one operation for each place).
+Holds(st, kind, target, draining) ==
+    \E op \in DOMAIN st.ops : op.kind = kind /\ op.target = target /\ op.draining = draining
+
 \* A socket per server, each with its receive armed; none over TLS (§21, TLS rule 9). `slotless`
 \* says that the engine told a lookup its connection failed for want of a slot over TLS, or in the
 \* clear while a slot had no lookup or was marked. Both break the stream's rule 12. A model that

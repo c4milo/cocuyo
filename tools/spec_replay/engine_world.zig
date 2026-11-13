@@ -409,18 +409,21 @@ pub fn number(token: ?[]const u8) Error!usize {
 
 /// Fires the engine's timer, as the model's step says that a deadline came. The model has no timer,
 /// so the replay fires the engine's own. With none armed, because no deadline was due or the loop
-/// refused the timer, the replay gives the engine a timer's id now and fires that. The engine takes
-/// the fire of its current timer alone, and the table holds each id that it takes (docs/design.md
-/// §26 step 4.1).
+/// refused the timer, the replay gives the engine a timer's id now and fires that. The timer is one
+/// place, and a cancelled timer ends before the next event (`end_cancelled_timers`), so no other
+/// timer holds the place then (docs/design.md §26 step 4.1, one operation for each place).
 pub fn fire_timer(self: anytype) Error!void {
+    const Engine = @TypeOf(self.engine);
+    const origin: io.Origin = .{ .kind = .timer, .index = 0 };
     const user_data = if (self.engine.timer_handle) |handle| armed: {
         const armed = self.loop.slots[handle.index].user_data;
         self.loop.end(handle.index);
         break :armed armed;
     } else given: {
-        const id = self.engine.operations.take(.{ .kind = .timer, .index = 0 }) orelse return error.Full;
+        if (self.engine.operations.busy(Engine.place_of(origin))) return error.Full;
+        const id = self.engine.operations.take(Engine.place_of(origin), origin);
         self.engine.timer_id = id;
-        break :given @TypeOf(self.engine).user_data(id);
+        break :given Engine.user_data(id);
     };
     _ = self.engine.apply(rotor.Event.success(user_data, 0), self.now_ns);
 }

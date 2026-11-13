@@ -175,39 +175,39 @@ config 1 0 channel 0
 5 expire awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  |  | 0:0 ; 0:1 | open x[0] q[] h-- down ------- down ------- ; open x[1] q[] h-- down ------- down ------- |  | r[] q[] t- w[[0]] f[1,0] e[] -- tk[0,0]
 6 chan:open:2:0:- awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  |  | 0:0 ; 0:1 | open x[0] q[] h-- down ------- down ------- ; open x[1] q[] h-- running B----A- down ------- | W2* Y2* | r[] q[] t- w[[0]] f[1,0] e[] -- tk[0,0]
 7 finish:W2*:failed awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  |  | 0:0 ; 0:1 | open x[0] q[] h-- down ------- down ------- ; open x[1] q[] h-- down ------- down ------- | Y2x | r[] q[] t- w[[0]] f[1,0] e[] -- tk[0,0]
-8 chan:open:2:0:- awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  |  | 0:0 ; 0:1 | open x[0] q[] h-- down ------- down ------- ; open x[1] q[] h-- running B----A- down ------- | W2* Y2x Y2* | r[] q[] t- w[[0]] f[1,0] e[] -- tk[0,0]
-9 chan:close:2:0:- awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  |  | 0:0 ; 0:1 | open x[0] q[] h-- down ------- down ------- ; open x[1] q[] h-- closing B------ down ------- | W2* Y2x Y2x | r[] q[] t- w[[0]] f[1,0] e[] -- tk[0,0]
-10 chan:finished:0:0:answer done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I closing B------ down ------- | W2* Y2x Y2x | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
-11 finish:W2*:ok done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- | Y2x Y2x | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
-12 finish:Y2x:failed done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- | Y2x | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
-13 finish:Y2x:failed done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
-14 starve done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] -Z tk[0,0]
-15 idle done - - o[0,1] c- u- --R |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; shutting x[] q[] h-- down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
-16 chan:closed:1:0:- done - - o[0,1] c- u- --R |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
-17 jam done - - o[0,1] c- u- --R |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] J- tk[0,0]
-18 take done - - o[0,1] c- u- --R |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] -- tk[0,0]
-19 starve done - - o[0,1] c- u- --R |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] -Z tk[0,0]
-20 jam done - - o[0,1] c- u- --R |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] JZ tk[0,0]
-21 chan:closed:0:0:- done - - o[0,1] c- u- --R |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] -- tk[0,0]
-22 starve done - - o[0,1] c- u- --R |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] -Z tk[0,0]
-23 take free - u- |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] -- tk[0,0]
-24 jam free - u- |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] J- tk[0,0]
-25 starve free - u- |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] JZ tk[0,0]
-26 start awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | - ; 0:0 | open x[1] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[[0]] f[0,0] e[] -- tk[0,0]
-27 expire awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  |  | 0:1 ; 0:0 | open x[1] q[] h-- down ------- down ------- ; open x[0] q[] h-- down ------- down ------- |  | r[] q[] t- w[[0]] f[1,0] e[] -- tk[0,0]
-28 chan:open:1:0:- awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  |  | 0:1 ; 0:0 | open x[1] q[] h-- down ------- connecting -N---A- ; open x[0] q[] h-- down ------- down ------- | A1* | r[] q[] t- w[[0]] f[1,0] e[] -- tk[0,0]
-29 chan:finished:0:1:answer done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- connecting -N---A- ; open x[] q[] h-I down ------- down ------- | A1* | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
-30 take done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- connecting -N---A- ; open x[] q[] h-I down ------- down ------- | A1* | r[] q[] t0 w[] f[0,0] e[] -- tk[0,0]
-31 chan:close:1:0:- done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down -N----- ; open x[] q[] h-I down ------- down ------- | A1x | r[] q[] t0 w[] f[0,0] e[] -- tk[0,0]
-32 jam done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down -N----- ; open x[] q[] h-I down ------- down ------- | A1x | r[] q[] t0 w[] f[0,0] e[] J- tk[0,0]
-33 finish:A1x:failed done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] -- tk[0,0]
-34 starve done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] -Z tk[0,0]
-35 take free - u- |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] -- tk[0,0]
-36 starve free - u- |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] -Z tk[0,0]
-37 jam free - u- |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] JZ tk[0,0]
-38 start awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | 0:0 ; - | open x[0] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[] t- w[[0]] f[0,0] e[] -- tk[0,0]
-39 starve awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | 0:0 ; - | open x[0] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[] t- w[[0]] f[0,0] e[] -Z tk[0,0]
-40 cancel:0 failed canceled - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
+8 chan:open:2:0:- awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  |  | 0:0 ; 0:1 | open x[0] q[] h-- down ------- down ------- ; open x[1] q[] h-- running B----A- down ------- | W2* Y2x | r[] q[] t- w[[0]] f[1,0] e[] -- tk[0,0]
+9 chan:close:2:0:- awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  |  | 0:0 ; 0:1 | open x[0] q[] h-- down ------- down ------- ; open x[1] q[] h-- closing B------ down ------- | W2* Y2x | r[] q[] t- w[[0]] f[1,0] e[] -- tk[0,0]
+10 chan:finished:0:0:answer done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I closing B------ down ------- | W2* Y2x | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
+11 finish:W2*:ok done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- | Y2x | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
+12 finish:Y2x:failed done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
+13 take done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] -- tk[0,0]
+14 starve done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; open x[] q[] h-I down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] -Z tk[0,0]
+15 idle done - - o[0,1] c- u- --R |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; shutting x[] q[] h-- down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] -- tk[0,0]
+16 chan:closed:1:0:- done - - o[0,1] c- u- --R |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] -- tk[0,0]
+17 jam done - - o[0,1] c- u- --R |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] J- tk[0,0]
+18 take free - u- |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] -- tk[0,0]
+19 starve free - u- |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] -Z tk[0,0]
+20 jam free - u- |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] JZ tk[0,0]
+21 chan:closed:0:0:- free - u- |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] -- tk[0,0]
+22 starve free - u- |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] -Z tk[0,0]
+23 start awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | - ; 0:0 | open x[1] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[[0]] f[0,0] e[] -- tk[0,0]
+24 chan:finished:0:1:answer done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
+25 jam done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] J- tk[0,0]
+26 starve done - - o[0,1] c- u- --R |  |  |  | - ; - | open x[] q[] h-I down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] JZ tk[0,0]
+27 idle done - - o[0,1] c- u- --R |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
+28 starve done - - o[0,1] c- u- --R |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] -Z tk[0,0]
+29 jam done - - o[0,1] c- u- --R |  |  |  | - ; - | shutting x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] JZ tk[0,0]
+30 chan:closed:0:0:- done - - o[0,1] c- u- --R |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] -- tk[0,0]
+31 starve done - - o[0,1] c- u- --R |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] -Z tk[0,0]
+32 jam done - - o[0,1] c- u- --R |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[0] t- w[] f[0,0] e[] JZ tk[0,0]
+33 take done - - o[0,1] c- u- --R |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] -- tk[0,0]
+34 starve done - - o[0,1] c- u- --R |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t0 w[] f[0,0] e[] -Z tk[0,0]
+35 take free - u- |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] -- tk[0,0]
+36 starve free - u- |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] -Z tk[0,0]
+37 jam free - u- |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] JZ tk[0,0]
+38 start awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | - ; 0:0 | open x[1] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[[0]] f[0,0] e[] -- tk[0,0]
+39 chan:open:0:0:- awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | - ; 0:0 | open x[1] q[] h-- running B----A- down ------- ; closed x[] q[] h-- down ------- down ------- | W0* Y0* | r[] q[] t- w[[0]] f[0,0] e[] -- tk[0,0]
+40 finish:Y0*:failed awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | - ; 0:0 | open x[1] q[] h-- down B------ down ------- ; closed x[] q[] h-- down ------- down ------- | W0x | r[] q[] t- w[[0]] f[0,0] e[] -- tk[0,0]
 config 1 0 channel 0
 0 init free - u- |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] -- tk[0,0]
 1 jam free - u- |  |  |  | - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0] J- tk[0,0]
@@ -538,12 +538,12 @@ config 2 0 channel 0
 32 chan:open:1:0:- free - u- ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | 1:0 ; - ; - | open x[0] q[] h-- down B------ connecting -N---A- ; closed x[] q[] h-- down ------- down ------- | A1* W0x Y0x Y1x | r[] q[] t- w[[1]] f[0,0] e[0] -- tk[0,0]
 33 jam free - u- ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | 1:0 ; - ; - | open x[0] q[] h-- down B------ connecting -N---A- ; closed x[] q[] h-- down ------- down ------- | A1* W0x Y0x Y1x | r[] q[] t- w[[1]] f[0,0] e[0] J- tk[0,0]
 34 finish:Y0x:canceled free - u- ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | 1:0 ; - ; - | open x[0] q[] h-- down B------ connecting -N---A- ; closed x[] q[] h-- down ------- down ------- | A1* W0x Y1x | r[] q[] t- w[[1]] f[0,0] e[0] -- tk[0,0]
-35 finish:A1*:ok free - u- ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | 1:0 ; - ; - | open x[0] q[] h-- down B------ running B----A- ; closed x[] q[] h-- down ------- down ------- | W0x W1* Y1x Y1* | r[] q[] t- w[[1]] f[0,0] e[0] -- tk[0,0]
-36 start awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | 1:0 ; 0:0 ; - | open x[0,1] q[] h-- down B------ running B----A- ; closed x[] q[] h-- down ------- down ------- | W0x W1* Y1x Y1* | r[] q[] t- w[[1],[0]] f[0,0] e[] -- tk[0,0]
-37 finish:Y1*:failed awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | 1:0 ; 0:0 ; - | open x[0,1] q[] h-- down B------ down B------ ; closed x[] q[] h-- down ------- down ------- | W0x W1x Y1x | r[] q[] t- w[[1],[0]] f[0,0] e[] -- tk[0,0]
-38 chan:finished:0:0:answer awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- ; done - - o[0,1] c- u- --R |  |  |  | - ; 0:0 ; - | open x[1] q[] h-- down B------ down B------ ; closed x[] q[] h-- down ------- down ------- | W0x W1x Y1x | r[] q[1] t- w[[0]] f[0,0] e[] -- tk[0,0]
-39 chan:open:1:0:- awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- ; done - - o[0,1] c- u- --R |  |  |  | - ; 0:0 ; - | open x[1] q[] h-- down B------ connecting BN---A- ; closed x[] q[] h-- down ------- down ------- | A1* W0x W1x Y1x | r[] q[1] t- w[[0]] f[0,0] e[] -- tk[0,0]
-40 chan:finished:0:1:failed awaiting_udp 1/0/0/0 E-F- o[0,1] c- u- --- ; done - - o[0,1] c- u- --R |  |  |  | - ; 0:1 ; - | open x[] q[] h-I down B------ connecting BN---A- ; open x[1] q[] h-- down ------- down ------- | A1* W0x W1x Y1x | r[] q[1] t- w[[0]] f[1,0] e[] -- tk[0,0]
+35 finish:A1*:ok free - u- ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | 1:0 ; - ; - | open x[0] q[] h-- down B------ running B----A- ; closed x[] q[] h-- down ------- down ------- | W0x W1* Y1x | r[] q[] t- w[[1]] f[0,0] e[0] -- tk[0,0]
+36 jam free - u- ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | 1:0 ; - ; - | open x[0] q[] h-- down B------ running B----A- ; closed x[] q[] h-- down ------- down ------- | W0x W1* Y1x | r[] q[] t- w[[1]] f[0,0] e[0] J- tk[0,0]
+37 finish:Y1x:canceled free - u- ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  |  | 1:0 ; - ; - | open x[0] q[] h-- down B------ running B----A- ; closed x[] q[] h-- down ------- down ------- | W0x W1* | r[] q[] t- w[[1]] f[0,0] e[0] -- tk[0,0]
+38 chan:finished:0:0:failed free - u- ; awaiting_udp 1/0/0/0 E-F- o[0,1] c- u- --- |  |  |  | 1:1 ; - ; - | open x[] q[] h-I down B------ running B----A- ; open x[0] q[] h-- down ------- down ------- | W0x W1* Y1* | r[] q[] t- w[[1]] f[1,0] e[0] -- tk[0,0]
+39 chan:open:3:0:- free - u- ; awaiting_udp 1/0/0/0 E-F- o[0,1] c- u- --- |  |  |  | 1:1 ; - ; - | open x[] q[] h-I down B------ running B----A- ; open x[0] q[] h-- down ------- connecting -N---A- | A3* W0x W1* Y1* | r[] q[] t- w[[1]] f[1,0] e[0] -- tk[0,0]
+40 chan:open:2:0:- free - u- ; awaiting_udp 1/0/0/0 E-F- o[0,1] c- u- --- |  |  |  | 1:1 ; - ; - | open x[] q[] h-I down B------ running B----A- ; open x[0] q[] h-- running B----A- connecting -N---A- | A3* W0x W1* W2* Y1* Y2* | r[] q[] t- w[[1]] f[1,0] e[0] -- tk[0,0]
 config 2 0 channel 0
 0 init free - u- ; free - u- |  |  |  | - ; - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0,1] -- tk[0,0]
 1 jam free - u- ; free - u- |  |  |  | - ; - ; - | closed x[] q[] h-- down ------- down ------- ; closed x[] q[] h-- down ------- down ------- |  | r[] q[] t- w[] f[0,0] e[0,1] J- tk[0,0]
@@ -1603,39 +1603,39 @@ config 2 0 request 0
 5 qtime:0:timeout failed all_servers_failed - o[0,1] c- u- --R ; free - u- |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0x | r[] q[0] t- w[] f[1,1] e[1] -- tk[0,0]
 6 straggle:V0x failed all_servers_failed - o[0,1] c- u- --R ; free - u- |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0x | r[] q[0] t- w[] f[1,1] e[1] -- tk[0,0]
 7 straggle:V0x failed all_servers_failed - o[0,1] c- u- --R ; free - u- |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0x | r[] q[0] t- w[] f[1,1] e[1] -- tk[0,0]
-8 start failed all_servers_failed - o[0,1] c- u- --R ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  | handshaking q[0] st[] O-B- ; closed q[] st[] ---- | 1:0 ; - ; - | Q0x V0x V0* | r[] q[0] t- w[[1]] f[1,1] e[] -- tk[0,0]
-9 expire failed all_servers_failed - o[0,1] c- u- --R ; awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  | handshaking q[0] st[] O-B- ; handshaking q[1] st[] --B- | 1:0 ; 1:1 ; - | Q0x Q1* V0x V0* V1* | r[] q[0] t- w[[1]] f[2,1] e[] -- tk[0,0]
-10 take failed all_servers_failed - o[0,1] c- u- --R ; awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  | handshaking q[0] st[] O-B- ; handshaking q[1] st[] --B- | 1:0 ; 1:1 ; - | Q0x Q1* V0x V0* V1* | r[] q[] t0 w[[1]] f[2,1] e[] -- tk[0,0]
-11 finish:Q1*:failed failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | handshaking q[] st[] O-BI ; closed q[] st[] ---- | - ; - ; - | Q0x V0x V0* V1x | r[] q[1] t0 w[] f[2,2] e[] -- tk[0,0]
-12 idle failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closing q[] st[] O-B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0x V0* V1x | r[] q[1] t0 w[] f[2,2] e[] -- tk[0,0]
-13 finish:V0x:canceled failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closing q[] st[] O-B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0* V1x | r[] q[1] t0 w[] f[2,2] e[] -- tk[0,0]
-14 qtime:0:retransmit failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closing q[] st[] O-B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0* V1x | r[] q[1] t0 w[] f[2,2] e[] -- tk[0,0]
-15 finish:V1x:canceled failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closing q[] st[] O-B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0* | r[] q[1] t0 w[] f[2,2] e[] -- tk[0,0]
-16 qtime:0:retransmit failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closing q[] st[] O-B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0* | r[] q[1] t0 w[] f[2,2] e[] -- tk[0,0]
-17 take free - u- ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closing q[] st[] O-B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0* | r[] q[] t1 w[] f[2,2] e[0] -- tk[0,0]
-18 starve free - u- ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closing q[] st[] O-B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0* | r[] q[] t1 w[] f[2,2] e[0] -Z tk[0,0]
-19 finish:V0*:exhausted free - u- ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closing q[] st[] O-B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0* | r[] q[] t1 w[] f[2,2] e[0] -- tk[0,0]
-20 qtime:0:retransmit free - u- ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closing q[] st[] O-B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0* | r[] q[] t1 w[] f[2,2] e[0] -- tk[0,0]
-21 qtime:0:timeout free - u- ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0x | r[] q[] t1 w[] f[2,2] e[0] -- tk[0,0]
-22 straggle:V0x free - u- ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0x | r[] q[] t1 w[] f[2,2] e[0] -- tk[0,0]
-23 finish:Q0x:failed free - u- ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - | V0x | r[] q[] t1 w[] f[2,2] e[0] -- tk[0,0]
-24 jam free - u- ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - | V0x | r[] q[] t1 w[] f[2,2] e[0] J- tk[0,0]
-25 straggle:V0x free - u- ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - | V0x | r[] q[] t1 w[] f[2,2] e[0] -- tk[0,0]
-26 finish:V0x:failed free - u- ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[] t1 w[] f[2,2] e[0] -- tk[0,0]
-27 take free - u- ; free - u- |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[] t- w[] f[2,2] e[1,0] -- tk[0,0]
-28 start free - u- ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  | handshaking q[0] st[] --B- ; closed q[] st[] ---- | 1:0 ; - ; - | Q0* V0* | r[] q[] t- w[[1]] f[2,2] e[0] -- tk[0,0]
-29 start awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  | handshaking q[0,1] st[] --B- ; closed q[] st[] ---- | 1:0 ; 0:0 ; - | Q0* V0* | r[] q[] t- w[[0,1]] f[2,2] e[] -- tk[0,0]
-30 finish:Q0*:failed awaiting_udp 1/0/0/0 E-F- o[0,1] c- u- --- ; awaiting_udp 1/0/0/0 E-F- o[0,1] c- u- --- |  |  | closed q[] st[] ---- ; handshaking q[1,0] st[] --B- | 0:1 ; 1:1 ; - | Q1* V0x V1* | r[] q[] t- w[[0,1]] f[4,2] e[] -- tk[0,0]
-31 expire failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; handshaking q[] st[] --BI | - ; - ; - | Q1* V0x V1* | r[] q[0,1] t- w[] f[4,4] e[] -- tk[0,0]
-32 quic:V1*:otherAlpn:0:- failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] --B- | - ; - ; - | Q1x V0x V1x | r[] q[0,1] t- w[] f[4,4] e[] -- tk[0,0]
-33 finish:V1x:ok failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] --B- | - ; - ; - | Q1x V0x | r[] q[0,1] t- w[] f[4,4] e[] -- tk[0,0]
-34 jam failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] --B- | - ; - ; - | Q1x V0x | r[] q[0,1] t- w[] f[4,4] e[] J- tk[0,0]
-35 take failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] --B- | - ; - ; - | Q1x V0x | r[] q[1] t0 w[] f[4,4] e[] -- tk[0,0]
-36 straggle:V0x failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] --B- | - ; - ; - | Q1x V0x | r[] q[1] t0 w[] f[4,4] e[] -- tk[0,0]
-37 finish:V0x:ok failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] --B- | - ; - ; - | Q1x | r[] q[1] t0 w[] f[4,4] e[] -- tk[0,0]
-38 finish:Q1x:failed failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[1] t0 w[] f[4,4] e[] -- tk[0,0]
-39 jam failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[1] t0 w[] f[4,4] e[] J- tk[0,0]
-40 take free - u- ; failed all_servers_failed - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[] t1 w[] f[4,4] e[0] -- tk[0,0]
+8 start failed all_servers_failed - o[0,1] c- u- --R ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  | handshaking q[0] st[] O-B- ; closed q[] st[] ---- | 1:0 ; - ; - | Q0x V0x | r[] q[0] t- w[[1]] f[1,1] e[] -- tk[0,0]
+9 expire failed all_servers_failed - o[0,1] c- u- --R ; awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  | handshaking q[0] st[] O-B- ; handshaking q[1] st[] --B- | 1:0 ; 1:1 ; - | Q0x Q1* V0x V1* | r[] q[0] t- w[[1]] f[2,1] e[] -- tk[0,0]
+10 straggle:V0x failed all_servers_failed - o[0,1] c- u- --R ; awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  | handshaking q[0] st[] O-B- ; handshaking q[1] st[] --B- | 1:0 ; 1:1 ; - | Q0x Q1* V0x V1* | r[] q[0] t- w[[1]] f[2,1] e[] -- tk[0,0]
+11 finish:V0x:failed failed all_servers_failed - o[0,1] c- u- --R ; awaiting_udp 1/0/0/0 E--- o[0,1] c- u- --- t[0r] k[] f[] |  |  | handshaking q[0] st[] O-B- ; handshaking q[1] st[] --B- | 1:0 ; 1:1 ; - | Q0x Q1* V0* V1* | r[] q[0] t- w[[1]] f[2,1] e[] -- tk[0,0]
+12 expire failed all_servers_failed - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R |  |  | handshaking q[] st[] O-BI ; handshaking q[] st[] --BI | - ; - ; - | Q0x Q1* V0* V1* | r[] q[0,1] t- w[] f[2,2] e[] -- tk[0,0]
+13 quic:V1*:failed:0:- failed all_servers_failed - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R |  |  | handshaking q[] st[] O-BI ; closed q[] st[] --B- | - ; - ; - | Q0x Q1x V0* V1x | r[] q[0,1] t- w[] f[2,2] e[] -- tk[0,0]
+14 finish:V0*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R |  |  | handshaking q[] st[] O-BI ; closed q[] st[] --B- | - ; - ; - | Q0x Q1x V0* V1x | r[] q[0,1] t- w[] f[2,2] e[] -- tk[0,0]
+15 finish:Q0x:failed failed all_servers_failed - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R |  |  | handshaking q[] st[] --BI ; closed q[] st[] --B- | - ; - ; - | Q0* Q1x V0* V1x | r[] q[0,1] t- w[] f[2,2] e[] -- tk[0,0]
+16 finish:V0*:failed failed all_servers_failed - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R |  |  | closed q[] st[] --B- ; closed q[] st[] --B- | - ; - ; - | Q0x Q1x V1x | r[] q[0,1] t- w[] f[2,2] e[] -- tk[0,0]
+17 take failed all_servers_failed - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R |  |  | closed q[] st[] --B- ; closed q[] st[] --B- | - ; - ; - | Q0x Q1x V1x | r[] q[1] t0 w[] f[2,2] e[] -- tk[0,0]
+18 starve failed all_servers_failed - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R |  |  | closed q[] st[] --B- ; closed q[] st[] --B- | - ; - ; - | Q0x Q1x V1x | r[] q[1] t0 w[] f[2,2] e[] -Z tk[0,0]
+19 finish:V1x:ok failed all_servers_failed - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R |  |  | closed q[] st[] --B- ; closed q[] st[] --B- | - ; - ; - | Q0x Q1x | r[] q[1] t0 w[] f[2,2] e[] -- tk[0,0]
+20 finish:Q1x:failed failed all_servers_failed - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x | r[] q[1] t0 w[] f[2,2] e[] -- tk[0,0]
+21 take free - u- ; failed timeout - o[0,1] c- u- --R |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x | r[] q[] t1 w[] f[2,2] e[0] -- tk[0,0]
+22 jam free - u- ; failed timeout - o[0,1] c- u- --R |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x | r[] q[] t1 w[] f[2,2] e[0] J- tk[0,0]
+23 finish:Q0x:ok free - u- ; failed timeout - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[] t1 w[] f[2,2] e[0] -- tk[0,0]
+24 starve free - u- ; failed timeout - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[] t1 w[] f[2,2] e[0] -Z tk[0,0]
+25 jam free - u- ; failed timeout - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[] t1 w[] f[2,2] e[0] JZ tk[0,0]
+26 start failed all_servers_failed - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[0] t1 w[] f[3,3] e[] -- tk[0,0]
+27 jam failed all_servers_failed - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[0] t1 w[] f[3,3] e[] J- tk[0,0]
+28 take failed all_servers_failed - o[0,1] c- u- --R ; free - u- |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[] t0 w[] f[3,3] e[1] -- tk[0,0]
+29 starve failed all_servers_failed - o[0,1] c- u- --R ; free - u- |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[] t0 w[] f[3,3] e[1] -Z tk[0,0]
+30 take free - u- ; free - u- |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[] t- w[] f[3,3] e[0,1] -- tk[0,0]
+31 start awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- ; free - u- |  |  | handshaking q[1] st[] --B- ; closed q[] st[] ---- | - ; 0:0 ; - | Q0* V0* | r[] q[] t- w[[0]] f[3,3] e[1] -- tk[0,0]
+32 quic:V0*:failed:0:- awaiting_udp 1/0/0/0 E-F- o[0,1] c- u- --- ; free - u- |  |  | closed q[] st[] --B- ; handshaking q[1] st[] --B- | - ; 0:1 ; - | Q0x Q1* V0x V1* | r[] q[] t- w[[0]] f[4,3] e[1] -- tk[0,0]
+33 finish:Q1*:failed failed all_servers_failed - o[0,1] c- u- --R ; free - u- |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0x V1x | r[] q[0] t- w[] f[4,4] e[1] -- tk[0,0]
+34 straggle:V1x failed all_servers_failed - o[0,1] c- u- --R ; free - u- |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0x V1x | r[] q[0] t- w[] f[4,4] e[1] -- tk[0,0]
+35 straggle:V0x failed all_servers_failed - o[0,1] c- u- --R ; free - u- |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0x V1x | r[] q[0] t- w[] f[4,4] e[1] -- tk[0,0]
+36 straggle:V0x failed all_servers_failed - o[0,1] c- u- --R ; free - u- |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x V0x V1x | r[] q[0] t- w[] f[4,4] e[1] -- tk[0,0]
+37 finish:V0x:canceled failed all_servers_failed - o[0,1] c- u- --R ; free - u- |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x V1x | r[] q[0] t- w[] f[4,4] e[1] -- tk[0,0]
+38 finish:V1x:failed failed all_servers_failed - o[0,1] c- u- --R ; free - u- |  |  | closed q[] st[] --B- ; closed q[] st[] ---- | - ; - ; - | Q0x | r[] q[0] t- w[] f[4,4] e[1] -- tk[0,0]
+39 start failed all_servers_failed - o[0,1] c- u- --R ; awaiting_udp 0/0/0/0 E--- o[0,1] c- u- --- |  |  | handshaking q[1] st[] O-B- ; closed q[] st[] ---- | - ; 1:0 ; - | Q0x V0* | r[] q[0] t- w[[1]] f[4,4] e[] -- tk[0,0]
+40 cancel:1 failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R |  |  | handshaking q[] st[] O-BI ; closed q[] st[] ---- | - ; - ; - | Q0x V0* | r[] q[0,1] t- w[] f[4,4] e[] -- tk[0,0]
 config 2 0 request 0
 0 init free - u- ; free - u- |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[] t- w[] f[0,0] e[0,1] -- tk[0,0]
 1 starve free - u- ; free - u- |  |  | closed q[] st[] ---- ; closed q[] st[] ---- | - ; - ; - |  | r[] q[] t- w[] f[0,0] e[0,1] -Z tk[0,0]
@@ -1729,16 +1729,16 @@ config 1 1 tcp 0
 5 finish:R0*:exhausted tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[0,0] e[] --
 6 finish:R0*:exhausted tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[0,0] e[] --
 7 expire connecting_tcp 1/0/0/0 E--- o[0,1] c0 u- B-- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* R0x S0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
-8 finish:C0*:ok tcp_ready 1/0/0/0 E--- o[0,1] c0 u- BH- | up s1 u1I- q[] | open s0-- ; open s0-- | R0x R0* S0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
-9 finish:R0x:ok tcp_ready 1/0/0/0 E--- o[0,1] c0 u- BH- | up s1 u1I- q[] | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
-10 finish:S0x:short tcp_ready 1/0/0/0 E--- o[0,1] c0 u- B-- | up s1 u1I- q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
-11 cancel:0 failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
-12 finish:R0x:canceled failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
-13 finish:L0*:exhausted failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
-14 finish:L1*:exhausted failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
-15 finish:L1*:exhausted failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
-16 jam failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] J-
-17 take failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[] t0 w[] f[1,0] e[] --
+8 finish:C0*:ok tcp_ready 1/0/0/0 E--- o[0,1] c0 u- BH- | up s1 u1I- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
+9 finish:L1*:exhausted tcp_ready 1/0/0/0 E--- o[0,1] c0 u- BH- | up s1 u1I- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
+10 finish:L0*:exhausted tcp_ready 1/0/0/0 E--- o[0,1] c0 u- BH- | up s1 u1I- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
+11 cancel:0 failed canceled - o[0,1] c- u- BHR | up s1 u0I- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
+12 finish:R0x:canceled failed canceled - o[0,1] c- u- BHR | up s1 u0I- q[] | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
+13 finish:L1*:exhausted failed canceled - o[0,1] c- u- BHR | up s1 u0I- q[] | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
+14 finish:L1*:exhausted failed canceled - o[0,1] c- u- BHR | up s1 u0I- q[] | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
+15 finish:R0*:failed failed canceled - o[0,1] c- u- BHR | closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
+16 jam failed canceled - o[0,1] c- u- BHR | closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] J-
+17 take failed canceled - o[0,1] c- u- BHR | closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[] t0 w[] f[1,0] e[] --
 18 finish:S0x:ok failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[1,0] e[] --
 19 jam failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[1,0] e[] J-
 20 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t0 w[] f[1,0] e[] --
@@ -2149,16 +2149,16 @@ config 1 2 tcp 0
 5 finish:R0*:exhausted tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[0] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[0,0] e[] --
 6 finish:R0*:exhausted tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[0] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[0,0] e[] --
 7 expire connecting_tcp 1/0/0/0 E--- o[0,1] c0 u- B-- | connecting s1 u1-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | C0* R0x S0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
-8 finish:C0*:ok tcp_ready 1/0/0/0 E--- o[0,1] c0 u- BH- | up s1 u1I- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0x R0* S0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
-9 finish:R0x:ok tcp_ready 1/0/0/0 E--- o[0,1] c0 u- BH- | up s1 u1I- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
-10 finish:S0x:short tcp_ready 1/0/0/0 E--- o[0,1] c0 u- B-- | up s1 u1I- q[0] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
-11 cancel:0 failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
-12 finish:R0x:canceled failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
-13 finish:L0*:exhausted failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
-14 finish:L1*:exhausted failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
-15 finish:L1*:exhausted failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
-16 jam failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] J-
-17 take failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[] t0 w[] f[1,0] e[] --
+8 finish:C0*:ok tcp_ready 1/0/0/0 E--- o[0,1] c0 u- BH- | up s1 u1I- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
+9 finish:L1*:exhausted tcp_ready 1/0/0/0 E--- o[0,1] c0 u- BH- | up s1 u1I- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
+10 finish:L0*:exhausted tcp_ready 1/0/0/0 E--- o[0,1] c0 u- BH- | up s1 u1I- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[] --
+11 cancel:0 failed canceled - o[0,1] c- u- BHR | up s1 u0I- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
+12 finish:R0x:canceled failed canceled - o[0,1] c- u- BHR | up s1 u0I- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
+13 finish:L1*:exhausted failed canceled - o[0,1] c- u- BHR | up s1 u0I- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
+14 finish:L1*:exhausted failed canceled - o[0,1] c- u- BHR | up s1 u0I- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
+15 finish:R0*:failed failed canceled - o[0,1] c- u- BHR | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] --
+16 jam failed canceled - o[0,1] c- u- BHR | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[1,0] e[] J-
+17 take failed canceled - o[0,1] c- u- BHR | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[] t0 w[] f[1,0] e[] --
 18 finish:S0x:ok failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[1,0] e[] --
 19 jam failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[1,0] e[] J-
 20 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] ; closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t0 w[] f[1,0] e[] --
@@ -3859,9 +3859,9 @@ config 2 2 tls 0
 35 take connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; free - u- | connecting s0 u1-- q[] k0- ; closed s0 u0-- q[] k0- |  | C0* | r[] q[] t- w[[0]] f[5,5] e[1] -- tk[0,0]
 36 finish:C0*:ok connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; free - u- | handshaking s0 u1I- q[r] k1- ; closed s0 u0-- q[] k0- |  | R0* T0* | r[] q[] t- w[[0]] f[5,5] e[1] -- tk[0,0]
 37 finish:T0*:failed connecting_tcp 1/0/0/0 E-F- o[0,1] c0 u- --- ; free - u- | connecting s1 u1-- q[] k0- ; closed s0 u0-- q[] k0- |  | C0* R0x | r[] q[] t- w[[0]] f[6,5] e[1] -- tk[0,0]
-38 finish:C0*:ok connecting_tcp 1/0/0/0 E-F- o[0,1] c0 u- --- ; free - u- | handshaking s1 u1I- q[r] k1- ; closed s0 u0-- q[] k0- |  | R0x R0* T0* | r[] q[] t- w[[0]] f[6,5] e[1] -- tk[0,0]
-39 finish:T0*:failed failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] k0- ; closed s0 u0-- q[] k0- |  | R0x R0x | r[] q[0] t- w[] f[6,6] e[1] -- tk[0,0]
-40 take failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] k0- ; closed s0 u0-- q[] k0- |  | R0x R0x | r[] q[] t0 w[] f[6,6] e[1] -- tk[0,0]
+38 finish:C0*:ok connecting_tcp 1/0/0/0 E-F- o[0,1] c0 u- --- ; free - u- | handshaking s1 u1I- q[r] k1- ; closed s0 u0-- q[] k0- |  | R0x T0* | r[] q[] t- w[[0]] f[6,5] e[1] -- tk[0,0]
+39 finish:T0*:ok connecting_tcp 1/0/0/0 E-F- o[0,1] c0 u- --- ; free - u- | handshaking s1 u1I- q[] k0- ; closed s0 u0-- q[] k0- |  | R0x | r[] q[] t- w[[0]] f[6,5] e[1] -- tk[0,0]
+40 start connecting_tcp 1/0/0/0 E-F- o[0,1] c0 u- --- ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | handshaking s1 u2I- q[] k0- ; closed s0 u0-- q[] k0- |  | R0x | r[] q[] t- w[[0,1]] f[6,5] e[] -- tk[0,0]
 config 2 2 tls 0
 0 init free - u- ; free - u- | closed s0 u0-- q[] k0- ; closed s0 u0-- q[] k0- |  |  | r[] q[] t- w[] f[0,0] e[0,1] -- tk[0,0]
 1 jam free - u- ; free - u- | closed s0 u0-- q[] k0- ; closed s0 u0-- q[] k0- |  |  | r[] q[] t- w[] f[0,0] e[0,1] J- tk[0,0]

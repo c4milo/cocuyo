@@ -117,7 +117,7 @@ fn tend_sockets(self: anytype) void {
     var server: u8 = 0;
     while (server < self.sockets.count) : (server += 1) {
         close_if_drained(self, server);
-        if (self.sockets.is_due(server)) self.sockets.rotate(self, server) catch {};
+        if (self.sockets.is_due(self, server)) self.sockets.rotate(self, server) catch {};
         close_if_drained(self, server);
         self.sockets.tend(self, server);
     }
@@ -147,18 +147,23 @@ fn drain_owed(self: anytype, server: u8) bool {
 }
 
 /// One rotor timer at the soonest of the table's deadline and each request connection's, moved
-/// when that moves (docs/design.md §24, request rule 11).
+/// when that moves (docs/design.md §24, request rule 11). The timer is one place, so one timer is
+/// in flight at most: a deadline that moves cancels the current timer, and the next timer waits
+/// for the cancelled one's end (§26, one operation for each place).
 fn arm_timer(self: anytype, now_ns: u64) void {
     if (self.closing) return;
     const requests_due = earliest(request_tend.next_deadline(self), channel_module.next_deadline(self));
     const due = earliest(self.resolver.next_deadline_ns(), requests_due);
-    if (due == self.timer_due_ns) return;
-    if (self.timer_handle) |handle| {
+    if (self.timer_id != null) {
+        if (due == self.timer_due_ns) return;
+        const handle = self.timer_handle orelse return;
         self.loop.cancel(handle);
         self.timer_handle = null;
+        self.timer_due_ns = null;
+        return;
     }
+    assert(self.timer_handle == null);
     self.timer_due_ns = due;
-    self.timer_id = null;
     const deadline = due orelse return;
     const operation: rotor.Operation = .timer(undefined, deadline -| now_ns, 0);
     const submitted = operations.submit(self, .{ .kind = .timer, .index = 0 }, operation) orelse return;

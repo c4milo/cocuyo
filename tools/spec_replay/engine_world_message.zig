@@ -42,7 +42,7 @@ pub fn message(self: anytype, op: []const u8, slot: usize, reply: fixtures.Reply
     if (kind == .tcp_receive) {
         length = stream_frame(self, body, buffer);
     } else {
-        const server: u8 = @intCast(origin_of(self, user_data).index);
+        const server: u8 = @intCast(origin_of(self, user_data).index & io.constants.udp_server_mask);
         const peer = rotor.Network.server_address(server);
         length = rotor.buffers.write_delivery(buffer, self.loop.group_options, &peer, body);
         const metadata = buffer[rotor.constants.prefix_head_bytes..][0..@sizeOf(rotor.datagram.Received)];

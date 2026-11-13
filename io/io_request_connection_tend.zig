@@ -24,12 +24,15 @@ pub fn tend(self: anytype, now_ns: u64) void {
     }
 }
 
-/// Arms the connection's multishot receive, which every datagram from its server arrives on.
+/// Arms the connection's multishot receive, which every datagram from its server arrives on. A
+/// receive of an earlier opening still in flight holds the place, and the receive waits for the
+/// drive after that one's end (docs/design.md §26, one operation for each place).
 pub fn arm(self: anytype, server: u8) void {
     const connection = &self.quic.connections[server];
     assert(connection.receive == null);
     const descriptor = connection.descriptor orelse return;
     const origin = connection_module.origin_of(self, .quic_receive, server);
+    if (operations.busy(self, origin)) return;
     const operation: rotor.Operation = .receive_from(undefined, descriptor, self.group.id);
     if (operations.submit(self, origin, operation)) |submitted| connection.receive = submitted.handle;
 }

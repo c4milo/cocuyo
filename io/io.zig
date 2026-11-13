@@ -46,6 +46,7 @@ const request_connection = @import("io_request_connection.zig");
 const request_tend = @import("io_request_connection_tend.zig");
 const request_events = @import("io_request_events.zig");
 const operations_module = @import("io_operations.zig");
+const places_module = @import("io_places.zig");
 /// What an operation in flight is for, which a test names to find its id.
 pub const Origin = operations_module.Origin;
 pub const OperationId = @import("io_interface.zig").OperationId;
@@ -97,15 +98,9 @@ pub fn Resolver(comptime options: Options) type {
     // The stream of a DoQ answer holds the message and its prefix (RFC 9250 §4.2).
     const answer_bytes = sizes.with_requests(options, core.constants.tcp_prefix_bytes + options.tcp_message_bytes);
     comptime sizes.check_transports(options);
-    // What `Loop.Options.operations` needs for this engine: a send per lookup, a receive per
-    // server, a connect and a receive per connection, a receive and a send per QUIC connection,
-    // one timer, and slack. Its type is written, so the `usize` limits in the sum do not change it
-    // from `u32` (docs/design.md §16 decision 40).
-    const operations_in_flight_max: u32 = @as(u32, options.lookups) + cocuyo.limits.servers_max +
-        limits.loop_operations_per_connection_max * @as(u32, options.tcp_connections) +
-        limits.loop_operations_per_quic_connection_max * @as(u32, quic_servers) +
-        limits.loop_operations_per_channel_max * @as(u32, doh_servers) +
-        limits.loop_operations_slack_max;
+    // The places of this engine's operations, whose count is what `Loop.Options.operations` needs
+    // (docs/design.md §26, one operation for each place).
+    const Place = places_module.Places(options.lookups, options.tcp_connections, quic_servers, doh_servers);
     return struct {
         const Self = @This();
 
@@ -174,14 +169,14 @@ pub fn Resolver(comptime options: Options) type {
         results: results_module.Queue(options.lookups),
         /// The result handed out last, whose slot is freed at the next `take`.
         last_taken: ?cocuyo.Handle,
-        /// Each operation in flight, from its submit to its final event (docs/design.md §26 step
-        /// 4.1).
-        operations: operations_module.Table(operations_in_flight_max),
+        /// Each operation in flight, from its submit to its final event, at its place
+        /// (docs/design.md §26 step 4.1, one operation for each place).
+        operations: operations_module.Table(Place.count),
         timer_handle: ?rotor.Handle,
         timer_due_ns: ?u64,
-        /// The current timer's id. A cancel answers through the target's own final event, which
-        /// arrives after the new timer is armed (rotor decision 5, rule 2). The table holds the
-        /// two ids at once, so the end of the canceled timer has an id other than this one.
+        /// The id of the timer in flight, current or cancelled, until its final event. One timer
+        /// is in flight at most, and `timer_handle` is null once it is cancelled (docs/design.md
+        /// §26, one operation for each place).
         timer_id: ?OperationId,
         scratch: [cocuyo.limits.query_bytes_max]u8,
         closing: bool,
@@ -209,10 +204,15 @@ pub fn Resolver(comptime options: Options) type {
         /// The channel type, which `io_channel.zig` reads through the engine.
         pub const Doh = options.doh;
 
-        /// What `Loop.Options.operations` needs for this engine. The engine's table of
-        /// operations holds as many, so the table refuses an operation only when a loop of this
-        /// size refuses it too (docs/design.md §26 step 4.1).
-        pub const loop_operations: u32 = operations_in_flight_max;
+        /// What `Loop.Options.operations` needs for this engine: the count of its places. The
+        /// engine holds one operation at each place at most, so a loop of this size never refuses
+        /// one for want of room (docs/design.md §26, one operation for each place).
+        pub const loop_operations: u32 = Place.count;
+
+        /// The place of the operation for `origin`, which is its slot in the table of operations.
+        pub fn place_of(origin: Origin) u32 {
+            return Place.of(origin);
+        }
 
         /// Starts the engine on the caller's loop. `cache_memory` is the memory of its cache,
         /// the slots and the key index as `cocuyo.Cache.init` takes them, or null for an engine
@@ -469,11 +469,13 @@ test {
     _ = @import("io_reset.zig");
     _ = @import("io_interface.zig");
     _ = operations_module;
+    _ = places_module;
     // The tests drive the engine on the twin, which is the only `rotor` that has scripts.
     if (comptime @hasDecl(rotor, "server")) {
         _ = @import("io_sim_test.zig");
         _ = @import("io_sim_servers_test.zig");
         _ = @import("io_sim_datagram_test.zig");
+        _ = @import("io_sim_timer_test.zig");
         _ = @import("io_tcp_test.zig");
         _ = @import("io_tcp_cause_test.zig");
         _ = @import("io_kept_test.zig");

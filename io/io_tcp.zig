@@ -322,11 +322,14 @@ pub fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns:
     }
 }
 
-/// Arms the connection's multishot receive, which every answer on it arrives through.
+/// Arms the connection's multishot receive, which every answer on it arrives through. A receive of
+/// an earlier opening still in flight holds the place, and the receive waits for the drive after
+/// that one's end (docs/design.md §26, one operation for each place).
 fn receive_again(self: anytype, at: u8) void {
     const connection = &self.connections[at];
     if (connection.receiving or !(reads(connection.state) or connection.state == .closing)) return;
     const descriptor = connection.descriptor orelse return;
+    if (operations.busy(self, origin_of(self, .tcp_receive, at))) return;
     const operation: rotor.Operation = .receive_group(undefined, descriptor, self.tcp_group.id);
     if (operations.submit(self, origin_of(self, .tcp_receive, at), operation)) |submitted| {
         connection.receiving = true;

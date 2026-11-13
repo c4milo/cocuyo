@@ -113,14 +113,18 @@ SocksCurrent(st) ==
         IN armed(FALSE) <= 1 /\
            IF st.socks[v].draining THEN armed(TRUE) <= 1 ELSE armed(TRUE) = 0
 
+\* After a drive with nothing refused, each socket and each connection that reads has a receive in
+\* flight. A connection's can be one of an earlier opening, whose end lets the next drive arm its own.
 ListeningAll(st) ==
     /\ \A v \in 0..Sockets - 1 :
           Listening(st, v, FALSE) /\ (~st.socks[v].draining \/ Listening(st, v, TRUE))
-    /\ \A k \in 0..Conns - 1 : ~Reads(st.conns[k].stage) \/ Receiving(st, k)
+    /\ \A k \in 0..Conns - 1 : ~Reads(st.conns[k].stage) \/ Holds(st, "receive", k, FALSE)
 
+\* After a drive, a port that carried its share is replaced, unless its old one still drains, or the
+\* receive of a socket before it is still in flight.
 RotatedAll(st) ==
     \A v \in 0..Sockets - 1 :
-        (~st.socks[v].retiring \/ st.socks[v].draining) /\
+        (~st.socks[v].retiring \/ st.socks[v].draining \/ Holds(st, "receiveFrom", v, TRUE)) /\
         (~st.socks[v].draining \/ DrainNeeded(st, v))
 
 DriveDone(st) == st.ready = <<>>
@@ -259,8 +263,18 @@ MarkedHeld(st) ==
         LET c == st.conns[k] IN
         ~c.marked \/ (c.stage = "up" /\ c.users > 0) \/ c.stage = "closing"
 
+\* Where an operation is held: its kind, its target, and whether its socket drains.
+Place(op) == <<op.kind, op.target, op.draining>>
+
+\* Each place holds one operation in flight at most, so the count of places bounds the operations
+\* (docs/design.md §26, one operation for each place).
+OnePerPlace(st) ==
+    \A a \in DOMAIN st.ops :
+        st.ops[a] = 1 /\ \A b \in DOMAIN st.ops : Place(a) = Place(b) => a = b
+
 Checks(before, e, st) ==
-    << <<"users counted", UsersCounted(st)>>, <<"attached right", AttachedRight(st)>>,
+    << <<"one operation for each place", OnePerPlace(st)>>,
+       <<"users counted", UsersCounted(st)>>, <<"attached right", AttachedRight(st)>>,
        <<"kept for its try", KeptForItsTry(st)>>, <<"kept from open", KeptFromOpen(st)>>,
        <<"buffers lent", BuffersLent(st)>>, <<"one send a stream", OneSendAStream(st)>>,
        <<"borrow kept", BorrowKept(st)>>, <<"sealed in order", SealedInOrder(st)>>,

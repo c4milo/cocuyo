@@ -170,6 +170,36 @@ test "a cut datagram on a draining socket moves its lookup to TCP, and the drive
     try rig.deinit();
 }
 
+test "a port is replaced only once the receive that its closed draining socket left has ended" {
+    // A server holds two receives at most: its current socket's and its draining socket's. A
+    // draining socket that closes leaves its receive in flight until the cancel's end. So the
+    // current port, which carried its share, is replaced after that end (docs/design.md §26, one
+    // operation for each place).
+    var rig: Rig = .{};
+    const first = try waiting_under(&rig, 38, .{ .servers = &.{}, .udp_queries_per_port = 1 });
+    try testing.expect(rig.engine.sockets.draining[0].open);
+    const second = try rig.engine.start(&question("second.example."), rig.loop.now());
+    _ = try rig.step(0);
+    const current = rig.engine.sockets.items[0].epoch;
+    try testing.expect(rig.engine.sockets.items[0].retiring);
+    var out: [io.limits.buffer_bytes_max]u8 = undefined;
+    const answer = try padded_answer(&rig, first, room(&rig), &out);
+    try deliver_to(&rig, 0, rig.engine.sockets.draining[0].receive_id.?, answer);
+    // The draining socket closed, and the end of its receive's cancel has not come: the port stays.
+    try testing.expect(!rig.engine.sockets.draining[0].open);
+    try testing.expectEqual(current, rig.engine.sockets.items[0].epoch);
+    // The cancel's end comes, and the drive after it replaces the port.
+    _ = try rig.step(0);
+    try testing.expect(rig.engine.sockets.items[0].epoch != current);
+    try testing.expectEqual(current, rig.engine.sockets.draining[0].epoch);
+    try testing.expect((try rig.until_result()).outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    rig.engine.cancel(second, rig.loop.now());
+    try testing.expectEqual(cocuyo.Error.Canceled, (try rig.until_result()).outcome.failure.err);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
 /// An engine that keeps no TCP connection, as one built for DoQ alone does.
 const Streamless = io.Resolver(.{
     .lookups = fixtures.small_lookups,

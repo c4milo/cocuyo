@@ -200,7 +200,8 @@ TendRConnsTwiceFrom(st, v) ==
     IF v >= RServers THEN st
     ELSE
     LET c == st.rconns[v]
-        listened == IF c.stage # "closed" THEN QListen(st, v) ELSE st
+        listened == IF c.stage # "closed" /\ ~st.jammed
+                    THEN [st EXCEPT !.ops = Add(@, Op("qrecv", v))] ELSE st
     IN TendRConnsTwiceFrom(IF Sends(c) THEN SendR(listened, c, v) ELSE listened, v + 1)
 
 \* RQ11: a receive is armed beside the one that is current (the datagram's rule 1).

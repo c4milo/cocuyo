@@ -1,6 +1,8 @@
 //! The engine's operations in flight (docs/design.md §26 step 4.1). Each operation that the engine
 //! submits takes an `OperationId` from this table, and keeps it until its final event. The table
-//! records what each operation is for, so an event names its handler by its id alone.
+//! records what each operation is for, so an event names its handler by its id alone. Each place
+//! of the engine has one slot, so an id's slot names its place (§26, one operation for each
+//! place).
 const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
@@ -11,38 +13,43 @@ const Kind = @import("io.zig").Kind;
 /// What an operation is for: the handler of its events, and the index that the handler reads.
 pub const Origin = struct { kind: Kind, index: u64 };
 
-/// A table of `capacity` operations in flight at most.
-pub fn Table(comptime capacity: u32) type {
-    comptime assert(capacity >= 1);
-    comptime assert(capacity <= constants.operation_slot_mask + 1);
+/// A table of `places` operations in flight at most: one at each place, in the place's own slot.
+pub fn Table(comptime places: u32) type {
+    comptime assert(places >= 1);
+    comptime assert(places <= constants.operation_slot_mask + 1);
     return struct {
         const Self = @This();
 
-        origins: [capacity]Origin,
+        origins: [places]Origin,
         /// The generation of each slot's next id.
-        generations: [capacity]u8,
-        held: [capacity]bool,
-        /// The free slots, as a stack: `take` pops the last.
-        free: [capacity]u32,
-        free_count: u32,
+        generations: [places]u8,
+        held: [places]bool,
+        held_count: u32,
 
         /// Every slot free. Only `init` calls it, when no operation of the engine is in flight.
         pub fn reset(self: *Self) void {
             self.generations = @splat(0);
             self.held = @splat(false);
-            for (&self.free, 0..) |*slot, index| slot.* = @intCast(capacity - 1 - index);
-            self.free_count = capacity;
+            self.held_count = 0;
         }
 
-        /// An id for one more operation, or null when `capacity` operations are in flight.
-        pub fn take(self: *Self, origin: Origin) ?OperationId {
-            if (self.free_count == 0) return null;
-            self.free_count -= 1;
-            const slot = self.free[self.free_count];
-            assert(!self.held[slot]);
-            self.held[slot] = true;
-            self.origins[slot] = origin;
-            return .of(slot, self.generations[slot]);
+        /// The id of one more operation, at `place`. The place holds no other: the engine asks
+        /// `busy` before it submits where a cancelled operation can still be in flight.
+        pub fn take(self: *Self, place: u32, origin: Origin) OperationId {
+            assert(place < places);
+            assert(!self.held[place]);
+            assert(self.held_count < places);
+            self.held[place] = true;
+            self.held_count += 1;
+            self.origins[place] = origin;
+            return .of(place, self.generations[place]);
+        }
+
+        /// Whether an operation at `place` is in flight, current or cancelled: the place is taken
+        /// until that operation's final event.
+        pub fn busy(self: *const Self, place: u32) bool {
+            assert(place < places);
+            return self.held[place];
         }
 
         /// What an operation in flight is for. An id that the table does not hold is a halt
@@ -55,7 +62,7 @@ pub fn Table(comptime capacity: u32) type {
         /// Whether `id` names an operation in flight.
         pub fn holds(self: *const Self, id: OperationId) bool {
             const slot = id.slot();
-            if (slot >= capacity) return false;
+            if (slot >= places) return false;
             return self.held[slot] and self.generations[slot] == id.generation();
         }
 
@@ -65,26 +72,20 @@ pub fn Table(comptime capacity: u32) type {
             const slot = id.slot();
             self.held[slot] = false;
             self.generations[slot] +%= 1;
-            assert(self.free_count < capacity);
-            self.free[self.free_count] = slot;
-            self.free_count += 1;
+            assert(self.held_count > 0);
+            self.held_count -= 1;
         }
 
         pub fn in_flight(self: *const Self) u32 {
-            assert(self.free_count <= capacity);
-            return capacity - self.free_count;
+            assert(self.held_count <= places);
+            return self.held_count;
         }
 
-        /// The id of the one operation in flight for `origin`, or null for none. A test reads it
-        /// to build an event, because the engine keeps no id of a send.
-        pub fn find(self: *const Self, origin: Origin) ?OperationId {
-            var found: ?OperationId = null;
-            for (self.origins, self.held, self.generations, 0..) |held_origin, held, generation, slot| {
-                if (!held or !std.meta.eql(held_origin, origin)) continue;
-                assert(found == null);
-                found = .of(@intCast(slot), generation);
-            }
-            return found;
+        /// The id of the operation in flight at `place` for `origin`, or null for none. A test
+        /// reads it to build an event, because the engine keeps no id of a send.
+        pub fn find(self: *const Self, place: u32, origin: Origin) ?OperationId {
+            if (!self.busy(place) or !std.meta.eql(self.origins[place], origin)) return null;
+            return .of(place, self.generations[place]);
         }
     };
 }
@@ -92,10 +93,21 @@ pub fn Table(comptime capacity: u32) type {
 /// What `submit` gave: the operation's id, and the loop's handle, which a cancel names.
 pub const Submitted = struct { id: OperationId, handle: rotor.Handle };
 
-/// Submits `operation` for `origin`, under an id of the engine's table. Null when the table or the
-/// loop refused it, and then the table holds no id for it.
+/// Whether the place of `origin` holds an operation in flight. A place whose cancelled operation
+/// is still in flight waits for that operation's final event before it submits again.
+pub fn busy(self: anytype, origin: Origin) bool {
+    return self.operations.busy(@TypeOf(self.*).place_of(origin));
+}
+
+/// The id of the operation in flight for `origin`, or null for none.
+pub fn find(self: anytype, origin: Origin) ?OperationId {
+    return self.operations.find(@TypeOf(self.*).place_of(origin), origin);
+}
+
+/// Submits `operation` for `origin`, under an id of the engine's table, at the place of `origin`,
+/// which must be free. Null when the loop refused it, and then the table holds no id for it.
 pub fn submit(self: anytype, origin: Origin, operation: rotor.Operation) ?Submitted {
-    const id = self.operations.take(origin) orelse return null;
+    const id = self.operations.take(@TypeOf(self.*).place_of(origin), origin);
     var tagged = operation;
     tagged.user_data = @TypeOf(self.*).user_data(id);
     var handles: [1]rotor.Handle = undefined;
@@ -108,33 +120,38 @@ pub fn submit(self: anytype, origin: Origin, operation: rotor.Operation) ?Submit
 
 const testing = std.testing;
 
-test "a table gives each slot once, refuses one more, and gives a freed slot a new id" {
-    const capacity = 3;
-    var table: Table(capacity) = undefined;
+test "a table gives each place its slot, and a freed place a new id" {
+    const places = 3;
+    var table: Table(places) = undefined;
     table.reset();
-    var ids: [capacity]OperationId = undefined;
-    for (&ids, 0..) |*id, index| {
-        id.* = table.take(.{ .kind = .udp_send, .index = index }).?;
-        try testing.expectEqual(@as(u64, index), table.origin_of(id.*).index);
+    var ids: [places]OperationId = undefined;
+    for (&ids, 0..) |*id, place| {
+        try testing.expect(!table.busy(@intCast(place)));
+        id.* = table.take(@intCast(place), .{ .kind = .udp_send, .index = place });
+        try testing.expectEqual(@as(u32, @intCast(place)), id.slot());
+        try testing.expectEqual(@as(u64, place), table.origin_of(id.*).index);
+        try testing.expect(table.busy(@intCast(place)));
     }
-    try testing.expectEqual(@as(u32, capacity), table.in_flight());
-    try testing.expectEqual(@as(?OperationId, null), table.take(.{ .kind = .timer, .index = 0 }));
+    try testing.expectEqual(@as(u32, places), table.in_flight());
     table.release(ids[1]);
     try testing.expect(!table.holds(ids[1]));
-    const again = table.take(.{ .kind = .timer, .index = 0 }).?;
+    try testing.expect(!table.busy(1));
+    try testing.expectEqual(@as(u32, places - 1), table.in_flight());
+    const again = table.take(1, .{ .kind = .timer, .index = 0 });
     try testing.expectEqual(ids[1].slot(), again.slot());
     try testing.expect(again != ids[1]);
     try testing.expect(table.holds(again));
-    // The slot is held again, and the id of its earlier generation is still not the table's.
+    // The place is held again, and the id of its earlier generation is still not the table's.
     try testing.expect(!table.holds(ids[1]));
-    try testing.expectEqual(again, table.find(.{ .kind = .timer, .index = 0 }).?);
+    try testing.expectEqual(again, table.find(1, .{ .kind = .timer, .index = 0 }).?);
+    try testing.expectEqual(@as(?OperationId, null), table.find(1, .{ .kind = .udp_send, .index = 1 }));
 }
 
 test "a slot's generation wraps, and the id after the wrap is the first id again" {
     var table: Table(1) = undefined;
     table.reset();
-    const first = table.take(.{ .kind = .timer, .index = 0 }).?;
+    const first = table.take(0, .{ .kind = .timer, .index = 0 });
     table.release(first);
-    for (0..std.math.maxInt(u8)) |_| table.release(table.take(.{ .kind = .timer, .index = 0 }).?);
-    try testing.expectEqual(first, table.take(.{ .kind = .timer, .index = 0 }).?);
+    for (0..std.math.maxInt(u8)) |_| table.release(table.take(0, .{ .kind = .timer, .index = 0 }));
+    try testing.expectEqual(first, table.take(0, .{ .kind = .timer, .index = 0 }));
 }

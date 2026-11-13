@@ -208,11 +208,14 @@ pub fn tend(self: anytype, now_ns: u64) void {
 }
 
 /// Arms a link's multishot receive: over UDP every datagram into the datagram group, over TCP every
-/// chunk of the stream into the TCP chunks.
+/// chunk of the stream into the TCP chunks. A receive of an earlier opening still in flight holds
+/// the place, and the receive waits for the drive after that one's end (docs/design.md §26, one
+/// operation for each place).
 fn arm(self: anytype, server: u8, at: u1) void {
     const state = &self.doh.slots[server].links[at];
     assert(state.receive == null);
     const descriptor = state.descriptor orelse return;
+    if (operations.busy(self, origin_of(self, .doh_receive, server, at))) return;
     const operation: rotor.Operation = if (at == @intFromEnum(tcp_link(self)))
         .receive_group(undefined, descriptor, self.tcp_group.id)
     else

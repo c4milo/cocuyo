@@ -92,8 +92,10 @@ test "a connection whose QUIC timer gives up fails, when the engine's one timer 
     try testing.expect(connection.state == .handshaking);
     connection.transport.due_ns = rig.loop.now() + fixtures.quic_timer_ns;
     connection.transport.expiry = .timeout;
-    // The drive moves the engine's timer to the connection's deadline (request rule 11).
+    // The drive moves the engine's timer to the connection's deadline (request rule 11), once the
+    // timer it cancelled has ended.
     rig.engine.drive(rig.loop.now());
+    try rig.settle_timer();
     try testing.expectEqual(connection.transport.due_ns, rig.engine.timer_due_ns);
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
