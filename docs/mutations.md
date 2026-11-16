@@ -12316,3 +12316,16 @@ of slots and the second timer that they broke. W1 and W6 name lines that changed
 - Last and alone in the tree, the full `zig build tla`, in 22 hours while other projects' builds
   ran. Each of the 16 configurations holds, with the counts in spec/README.md, and each mutant is
   violated.
+
+## The pins of Rotor v0.11.0 and colibri v0.17.2
+
+2026-11-16. Rotor v0.11.0 moves tasks, pollers and calls out of its core, and the engine uses none
+of them, so no line of the engine changed for it. colibri v0.17.2 renames the constructors
+`StreamId.of` and `Address.of` to `init`, which two of the engine's call sites and four of its
+tests use. It carries chapulin v0.8.0, and pins stdx v0.1.1 and Rotor v0.11.0. stdx moves to the
+commit colibri pins. No check of cocuyo changed. SM4 names the consumer fixture's new hash, and
+`zig build mutations -- engine SM4` ran it.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| SM4 | the consumer fixture pins colibri v0.11.0, where `build.zig.zon` pins v0.17.2 | `zig build consumer-check` | `CAUGHT` |

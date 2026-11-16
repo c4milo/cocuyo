@@ -17,8 +17,8 @@
         // tests. Lazy, so a build that asks for neither does not resolve it. Pinned to the
         // release tag, whose public module is the whole of what rotor supports.
         .rotor = .{
-            .url = "git+https://github.com/c4milo/rotor?ref=v0.10.0#933985882d693e4d8b876e1403618a3fc6d989ef",
-            .hash = "rotor-0.10.0-YZkxRFCxJABaRNenAUK5EC84mD-ZR3zmBesT76zmXoqu",
+            .url = "git+https://github.com/c4milo/rotor?ref=v0.11.0#f2890f5283fd5577243f6472648a05dda7a7f4e6",
+            .hash = "rotor-0.11.0-YZkxRH0dJwBgz9oa8yO6YOTVtpFTnV6Iiz7C0OwjTffl",
             .lazy = true,
         },
         // colibri's QUIC, which `cocuyo_quic` puts under the engine's request interface
@@ -27,20 +27,20 @@
         // engine's DoH interface (decision 33). Never of the library in `src/`. Lazy, so a build
         // that asks for none of them does not resolve it.
         .colibri = .{
-            .url = "git+https://github.com/c4milo/colibri?ref=v0.16.0#b604972414f4a68ab52ef613522729a53dfb05c1",
-            .hash = "colibri-0.10.0-Wo-AvjeCrgQ2CoLmDuqHSEUVGxXqumzISRmI1N-u-yKe",
+            .url = "git+https://github.com/c4milo/colibri?ref=v0.17.2#c1b59ce0cbdb5b0acecf8538f256c269d8dcf1a4",
+            .hash = "colibri-0.17.2-Wo-Avn1vsgRPhQacsHtGAHD178K6cTcRXasxu7r0S8bE",
             .lazy = true,
         },
         // stdx's `platform`, the probe that the DoT, DoQ and DoH examples read under the word
         // `cpu` (docs/design.md §16 decision 48, as amended). A dependency of those examples
         // alone. No module rooted in `src/` reaches stdx, and none rooted in `io/` reaches it but
         // through colibri. `zig build graph-check` holds both. Pinned at the commit that colibri
-        // v0.16.0 pins, so the probe's `Cpu` is the type colibri's `tls.Cpu` holds. Lazy, and
+        // v0.17.2 pins, so the probe's `Cpu` is the type colibri's `tls.Cpu` holds. Lazy, and
         // requested only when cocuyo is the root build, so a project depending on cocuyo never
         // fetches it.
         .stdx = .{
-            .url = "git+https://github.com/c4milo/stdx#1d1b46f82fd09ae9703555eacab03bf8737dbecd",
-            .hash = "stdx-0.0.0-BD60tp9sOAC29iEwiUKXxXm64873d6D4J9lP5Q8uoM6G",
+            .url = "git+https://github.com/c4milo/stdx#0eedb8667d8091870b23150e730113c4cc76f579",
+            .hash = "stdx-0.1.1-BD60trfSQACegwqe5zSn7ZITfheze7Ue0YhHIFn1DEes",
             .lazy = true,
         },
     },

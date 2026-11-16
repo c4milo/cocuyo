@@ -206,7 +206,7 @@ fn step(self: anytype, answerer: Answerer) void {
 
 fn take_opened(self: anytype) void {
     for (0..self.requests.len) |_| {
-        const id = StreamId.of(.client, .bidirectional, self.next_index);
+        const id = StreamId.init(.client, .bidirectional, self.next_index);
         switch (self.connection.streams.lookup(id)) {
             .unopened => return,
             .closed => {},

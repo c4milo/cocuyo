@@ -8,16 +8,16 @@
         // The consumer's own loop, at the pin cocuyo's comparison uses, bound into
         // `cocuyo_rotor` by build.zig.
         .rotor = .{
-            .url = "git+https://github.com/c4milo/rotor?ref=v0.10.0#933985882d693e4d8b876e1403618a3fc6d989ef",
-            .hash = "rotor-0.10.0-YZkxRFCxJABaRNenAUK5EC84mD-ZR3zmBesT76zmXoqu",
+            .url = "git+https://github.com/c4milo/rotor?ref=v0.11.0#f2890f5283fd5577243f6472648a05dda7a7f4e6",
+            .hash = "rotor-0.11.0-YZkxRH0dJwBgz9oa8yO6YOTVtpFTnV6Iiz7C0OwjTffl",
         },
         // The consumer's own colibri, at the pin of cocuyo's `build.zig.zon`, bound into
         // `cocuyo_quic`, `chapulin_quic` and `chapulin` by build.zig. It is not lazy, as a
         // consumer that speaks DoQ or DoT needs it, so the package fetches colibri, and chapulin
         // and stdx under it.
         .colibri = .{
-            .url = "git+https://github.com/c4milo/colibri?ref=v0.16.0#b604972414f4a68ab52ef613522729a53dfb05c1",
-            .hash = "colibri-0.10.0-Wo-AvjeCrgQ2CoLmDuqHSEUVGxXqumzISRmI1N-u-yKe",
+            .url = "git+https://github.com/c4milo/colibri?ref=v0.17.2#c1b59ce0cbdb5b0acecf8538f256c269d8dcf1a4",
+            .hash = "colibri-0.17.2-Wo-Avn1vsgRPhQacsHtGAHD178K6cTcRXasxu7r0S8bE",
         },
     },
     .paths = .{

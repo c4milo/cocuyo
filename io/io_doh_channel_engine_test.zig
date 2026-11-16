@@ -122,7 +122,7 @@ const QuicSide = struct {
     fn hear(context: *anyopaque, socket: rotor.Descriptor, bytes: []const u8, now_ns: u64) void {
         const side: *QuicSide = @ptrCast(@alignCast(context));
         side.socket = socket;
-        const from = colibri_server.Address.of(rotor.Network.server_address(side.index).bytes[0..cocuyo.constants.address_v4_bytes], client_port);
+        const from = colibri_server.Address.init(rotor.Network.server_address(side.index).bytes[0..cocuyo.constants.address_v4_bytes], client_port);
         side.server.receive(bytes, from, .{ .context = side, .answer = answer }, now_ns);
         side.pump(now_ns);
     }

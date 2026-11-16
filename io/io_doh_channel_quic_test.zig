@@ -158,7 +158,7 @@ const Pair = struct {
     /// The channel's datagrams go to the server, and the server's come back, the channel read after
     /// each.
     fn carry(pair: *Pair, until: Tag) !?Event {
-        const from = server.Address.of(client_address.slice(), client_port);
+        const from = server.Address.init(client_address.slice(), client_port);
         for (0..said_max) |_| {
             const up = pair.doh.datagram(&pair.wire, pair.now_ns);
             if (up == 0) break;

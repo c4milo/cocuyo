@@ -84,7 +84,7 @@ pub fn start(self: anytype, context: anytype) error{Failed}!void {
         .authority = https.authority,
         .fallback_delay_ns = constants.fallback_delay_ns,
     };
-    self.addresses = .{client.Address.of(context.endpoint.address.slice(), 0)};
+    self.addresses = .{client.Address.init(context.endpoint.address.slice(), 0)};
     const destination: client.Destination = .{
         .addresses = &self.addresses,
         .port = context.endpoint.port,

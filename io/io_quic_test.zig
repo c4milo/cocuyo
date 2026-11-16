@@ -325,7 +325,7 @@ test "a lookup cancelled while colibri's server holds its query sends STOP_SENDI
     _ = engine.take(world.rig.loop.now());
     _ = try world.rig.step(fixtures.wait_ns);
     const server = &world.sides[0].entries[0].server;
-    const id = cocuyo_quic.server.StreamId.of(.client, .bidirectional, 0);
+    const id = cocuyo_quic.server.StreamId.init(.client, .bidirectional, 0);
     const state = switch (server.connection.streams.lookup(id)) {
         .live => |stream| stream.sending.state,
         .closed, .unopened => return error.StreamGone,
@@ -384,7 +384,7 @@ test "a request's bytes outlive its answer, and colibri sends them again until t
     _ = engine.take(world.rig.loop.now());
     try testing.expect(world.sides[0].acks_lost > 0);
     const client = &engine.quic.connections[0].transport.connection;
-    const first = cocuyo_quic.server.StreamId.of(.client, .bidirectional, 0);
+    const first = cocuyo_quic.server.StreamId.init(.client, .bidirectional, 0);
     var rounds: usize = 0;
     while (client.streams.lookup(first) != .closed and rounds < fixtures.until_rounds_max) : (rounds += 1) {
         _ = try world.rig.step(fixtures.wait_ns);
