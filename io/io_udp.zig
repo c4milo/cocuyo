@@ -161,10 +161,12 @@ pub const Sockets = struct {
 
     /// What a drive does last for server `index`: a receive armed on each of its sockets that
     /// has none. What the moment refuses is asked for again at the next drive (the datagram's
-    /// rules 1 and 5).
+    /// rules 1 and 5). A `reinit` that failed at its sockets left them closed, and a closed socket
+    /// gets no receive.
     pub fn tend(self: *Sockets, engine: anytype, index: u8) void {
         assert(index < self.count);
-        if (!self.items[index].receiving) self.arm(engine, &self.items[index], index) catch {};
+        const current = &self.items[index];
+        if (current.open and !current.receiving) self.arm(engine, current, index) catch {};
         const draining = &self.draining[index];
         if (draining.open and !draining.receiving) self.arm(engine, draining, index) catch {};
     }

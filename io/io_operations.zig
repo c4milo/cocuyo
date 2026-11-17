@@ -106,7 +106,14 @@ pub fn find(self: anytype, origin: Origin) ?OperationId {
 
 /// Submits `operation` for `origin`, under an id of the engine's table, at the place of `origin`,
 /// which must be free. Null when the loop refused it, and then the table holds no id for it.
+///
+/// Null after `deinit` too, which each caller takes as a refusal. The caller drains the loop then,
+/// and hands each event to `apply`. An event can ask for an operation: the end of a cancelled
+/// receive asks for the next receive, and a connect that ended asks for a receive. A receive that
+/// nothing cancels never ends, so the loop would never drain (§26, the rules that bind a host,
+/// rule 1).
 pub fn submit(self: anytype, origin: Origin, operation: rotor.Operation) ?Submitted {
+    if (self.closing) return null;
     const id = self.operations.take(@TypeOf(self.*).place_of(origin), origin);
     var tagged = operation;
     tagged.user_data = @TypeOf(self.*).user_data(id);

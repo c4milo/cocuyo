@@ -12329,3 +12329,20 @@ commit colibri pins. No check of cocuyo changed. SM4 names the consumer fixture'
 | Id | Mutation | Caught by | Result |
 | --- | --- | --- | --- |
 | SM4 | the consumer fixture pins colibri v0.11.0, where `build.zig.zon` pins v0.17.2 | `zig build consumer-check` | `CAUGHT` |
+
+## Nothing after deinit
+
+2026-11-16. cocuyo v0.9.0's engine left one receive in the loop after `deinit`, for a host that
+hands each event to `apply` while the loop drains (docs/design.md §26, Nothing after `deinit`). The
+end of each cancelled receive armed a new receive at the next drive, and nothing cancelled it.
+After `deinit`, `operations.submit` now refuses each operation. The test rigs of `io/` now drain
+as such a host does, so each test that ends an engine checks that the loop drains to zero. That
+drain showed one more fault: after a `reinit` that failed at its sockets, a drive armed a receive
+on a closed socket, which `arm` asserts against. U2 names the line that changed, and `zig build
+mutations -- engine DR1 DR2 U2` ran the rows.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| DR1 | v0.9.0: after `deinit`, the end of a cancelled receive arms a new receive | `zig build test-io` | `CAUGHT` |
+| DR2 | after a `reinit` that failed at its sockets, a drive arms a receive on a closed socket | `zig build test-io` | `CAUGHT` |
+| U2 | a socket's receive the loop refused is never asked for again | the engine model's short walks | `CAUGHT` |

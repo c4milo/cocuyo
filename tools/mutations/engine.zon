@@ -346,7 +346,7 @@
         .id = "U2",
         .what = "a socket's receive the loop refused is never asked for again",
         .edits = .{
-            .{ .file = "io/io_udp.zig", .old = "        if (!self.items[index].receiving) self.arm(engine, &self.items[index], index) catch {};", .new = "        if (!self.items[index].receiving and self.items[index].receive_id == null) self.arm(engine, &self.items[index], index) catch {};" },
+            .{ .file = "io/io_udp.zig", .old = "        if (current.open and !current.receiving) self.arm(engine, current, index) catch {};", .new = "        if (current.open and !current.receiving and current.receive_id == null) self.arm(engine, current, index) catch {};" },
         },
         .caught_by = .short_walks,
     },
@@ -8720,6 +8720,24 @@
         .what = "a connection's connect and receive share one place",
         .edits = .{
             .{ .file = "io/io_places.zig", .old = "                .tcp_connect => .connect,", .new = "                .tcp_connect => .receive," },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "Nothing after deinit",
+        .id = "DR1",
+        .what = "v0.9.0: after deinit, the end of a cancelled receive arms a new receive",
+        .edits = .{
+            .{ .file = "io/io_operations.zig", .old = "    if (self.closing) return null;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "Nothing after deinit",
+        .id = "DR2",
+        .what = "after a reinit that failed at its sockets, a drive arms a receive on a closed socket",
+        .edits = .{
+            .{ .file = "io/io_udp.zig", .old = "        if (current.open and !current.receiving) self.arm(", .new = "        if (!current.receiving) self.arm(" },
         },
         .caught_by = .{ .step = "test-io" },
     },

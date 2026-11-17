@@ -101,9 +101,12 @@ pub fn RigOfServers(comptime EngineType: type, comptime server_count: u8) type {
             use_empty_contexts(&rig.engine);
         }
 
+        /// Ends the engine as a host does: it drains the loop and hands each event to `apply`, so
+        /// each operation that `deinit` cancelled ends (docs/design.md §26, the rules that bind a
+        /// host, rule 1).
         pub fn deinit(rig: *RigType) !void {
             rig.engine.deinit();
-            try rig.loop.drain(&rig.events);
+            try drain_applied(rig);
             rig.engine.close();
             rig.loop.deinit();
         }
@@ -135,6 +138,16 @@ pub fn RigOfServers(comptime EngineType: type, comptime server_count: u8) type {
             return error.NoResult;
         }
     };
+}
+
+/// The drain of `deinit`, apart from the rig's type, so that each is scored on its own. It fails
+/// when an operation stays in the loop.
+fn drain_applied(rig: anytype) !void {
+    for (0..fixtures.until_rounds_max) |_| {
+        if (rig.loop.in_flight() == 0) return;
+        _ = try rig.step(fixtures.wait_ns);
+    }
+    return error.Timeout;
 }
 
 /// `settle_timer`, apart from the rig's type, so that each is scored on its own.

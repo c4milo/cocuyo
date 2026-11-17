@@ -213,11 +213,15 @@ const World = struct {
         return world;
     }
 
-    /// Ends the engine, drains the loop, and gives the memory back.
+    /// Ends the engine, drains the loop as a host does, each event applied, and gives the memory
+    /// back (docs/design.md §26, the rules that bind a host, rule 1).
     fn destroy(world: *World) !void {
         defer testing.allocator.destroy(world);
         world.engine.deinit();
-        try world.loop.drain(&world.events);
+        for (0..rounds_max) |_| {
+            if (world.loop.in_flight() == 0) break;
+            try world.step();
+        } else return error.Timeout;
         world.engine.close();
         world.loop.deinit();
     }

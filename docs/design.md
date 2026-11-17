@@ -12022,6 +12022,14 @@ The engine asserts each rule that it can see.
     cancelled one's end.
   - A port waits for its draining socket's receive to end before it is replaced again. So a
     server has two receives at most: its current socket's and its draining socket's.
+- **Nothing after `deinit`.** After `deinit` (later `stop`), the engine submits no operation.
+  The host drains the loop and hands each event to the engine (rule 1 below), and a submit that
+  an event asks for is refused.
+  - In v0.9.0, the end of a cancelled receive asked for the next receive, and the drive armed it.
+    Nothing cancelled that receive, so the loop never drained. v0.8.0 armed none, because a
+    socket stayed marked as receiving until `close`.
+  - A `reinit` that fails at its sockets leaves them closed, and the drive arms no receive on a
+    closed socket.
 - **The timer leaves.** The deadline is `Turn.wait`. The timer's generation, which told a
   cancelled timer from the current one, leaves with it.
 - **Memory.** The datagram group moves to the host, and to the adapter under `.private`. The TCP
