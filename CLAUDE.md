@@ -118,9 +118,10 @@ The architecture depends on every rule in this section.
   hooks` once after cloning points `core.hooksPath` at `.githooks/`, whose `pre-push` refuses a
   push whose commits break a rule. `zig build lint-commits` runs the same check by hand.
 - Stage by explicit path. Never `git add -A` and never `git add .`
-- **No comment, review or reply goes to GitHub unless the owner tells the session to post it.** A
-  cloud session ends each comment that it posts with a line that names its tool, so the owner
-  decides when one is posted. Otherwise the session writes the text for the owner to post.
+- **A comment, a review, a reply or an issue that a session posts on GitHub names no AI tool.**
+  Where a harness ends each comment with such a line and the session cannot leave it out, the
+  session writes the text for the owner to post, and posts it with that line only when the owner
+  says so.
 
 ## Layout
 
