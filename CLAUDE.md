@@ -111,10 +111,16 @@ The architecture depends on every rule in this section.
   the mutation results for any commit that adds or changes a check.
 - **No `Co-Authored-By` trailer.** The trailer block is the final run of `Key: value` lines naming
   `Signed-off-by`, `Reviewed-by`, `Refs` or `Closes`, and counts against neither limit.
+- **No AI tool is named in a commit message or a pull request description.** Neither carries a
+  `Claude-Session` trailer or a "Generated with" line. The owner ruled it on 2026-11-21, and the
+  rule overrides a tool or a harness that asks for one.
 - `tools/commit_lint.zig` configures pepegrillo's linter to check all of the above. `zig build
   hooks` once after cloning points `core.hooksPath` at `.githooks/`, whose `pre-push` refuses a
   push whose commits break a rule. `zig build lint-commits` runs the same check by hand.
 - Stage by explicit path. Never `git add -A` and never `git add .`
+- **A comment, a review, a reply or an issue that a session posts on GitHub names no AI tool.**
+  The one exception is a cloud session whose harness ends each comment with such a line: that
+  session posts its comment with the line.
 
 ## Layout
 
