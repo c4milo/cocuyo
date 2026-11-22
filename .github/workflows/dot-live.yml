@@ -13,7 +13,8 @@
 # (docs/design.md §16 decision 48). The run with the word reads stdx's probe, which the build
 # fetches at the commit build.zig.zon pins, colibri's own. On a runner whose sysctl does not report
 # FEAT_AES, FEAT_PMULL and FEAT_DIT as 1, each run with the word fails. No third-party action runs
-# here; `actions/checkout` is GitHub's own.
+# here; `actions/checkout` and `actions/upload-artifact` are GitHub's own. Each run keeps its
+# packets to and from Quad9 for 14 days (https://github.com/c4milo/cocuyo/issues/60).
 name: dot-live
 
 on:
@@ -43,8 +44,35 @@ jobs:
           tar -xf zig.tar.xz
           echo "$PWD/zig-aarch64-macos-${ZIG_VERSION}" >> "$GITHUB_PATH"
       - run: zig version
+      # Quad9 closes some connections before the handshake ends
+      # (https://github.com/c4milo/cocuyo/issues/60). The job keeps the packets to and from
+      # 9.9.9.9 on port 853, so a failure carries the closed handshake. The capture holds no key, so
+      # every record after the hellos stays encrypted in it.
+      - name: Capture the packets to and from Quad9
+        run: |
+          set -euo pipefail
+          interface=$(route -n get 9.9.9.9 | awk '/interface:/ { print $2 }')
+          sudo tcpdump -i "$interface" -U -s 0 -w "$RUNNER_TEMP/quad9.pcap" \
+            'host 9.9.9.9 and tcp port 853' > "$RUNNER_TEMP/tcpdump.log" 2>&1 &
+          sleep 2
+          cat "$RUNNER_TEMP/tcpdump.log"
       - name: The session's tests, then the live check
         run: |
           set -euo pipefail
           zig build test-chapulin
           tools/dot_live/run.sh
+      - name: Stop the capture
+        if: always()
+        run: |
+          sudo pkill -INT -x tcpdump || true
+          sleep 2
+          sudo chmod a+r "$RUNNER_TEMP/quad9.pcap" || true
+          ls -l "$RUNNER_TEMP/quad9.pcap" || true
+      - name: Keep the capture
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: quad9-capture
+          path: ${{ runner.temp }}/quad9.pcap
+          if-no-files-found: ignore
+          retention-days: 14
