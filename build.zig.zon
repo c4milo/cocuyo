@@ -27,8 +27,8 @@
         // engine's DoH interface (decision 33). Never of the library in `src/`. Lazy, so a build
         // that asks for none of them does not resolve it.
         .colibri = .{
-            .url = "git+https://github.com/c4milo/colibri#e7e001f7bc2ba7a9f3952217c16595913c8d0b0a",
-            .hash = "colibri-0.21.0-Wo-Avkp3tQQCuUxitwx0-hkF7-bjALOR3gARcEZZ2vrw",
+            .url = "git+https://github.com/c4milo/colibri#7df385cd74d5a2dee8dbcb1ac5aa148ca3e1ceb8",
+            .hash = "colibri-0.21.0-Wo-AvmtxtQRmIma4g5ZQEeGOfEl3e9i7I4SnCkTykbbo",
             .lazy = true,
         },
         // stdx's `platform` and `crypto`: the DoT, DoQ and DoH examples detect the CPU's features,
@@ -39,8 +39,8 @@
         // the context is the type colibri's TLS holds. Lazy, and requested only when cocuyo is the
         // root build, so a project depending on cocuyo never fetches it.
         .stdx = .{
-            .url = "git+https://github.com/c4milo/stdx#a11db0bfcf5acb176b504e60789fa731c42b0252",
-            .hash = "stdx-0.3.0-BD60to9OXQCZwP25ZzE67Ihvtvq1DoksAepvn5CBet3T",
+            .url = "git+https://github.com/c4milo/stdx#953c24cc3a9ecb150191531f359ebb471d065109",
+            .hash = "stdx-0.3.0-BD60tjRdXQDRAL6x5HhzmBgLApdXv1q4k-PHrftpw-T9",
             .lazy = true,
         },
     },

@@ -16,15 +16,15 @@
         // consumer that speaks DoQ or DoT needs it, so the package fetches colibri, and stdx and
         // chapulin under it.
         .colibri = .{
-            .url = "git+https://github.com/c4milo/colibri#e7e001f7bc2ba7a9f3952217c16595913c8d0b0a",
-            .hash = "colibri-0.21.0-Wo-Avkp3tQQCuUxitwx0-hkF7-bjALOR3gARcEZZ2vrw",
+            .url = "git+https://github.com/c4milo/colibri#7df385cd74d5a2dee8dbcb1ac5aa148ca3e1ceb8",
+            .hash = "colibri-0.21.0-Wo-AvmtxtQRmIma4g5ZQEeGOfEl3e9i7I4SnCkTykbbo",
         },
         // The consumer's own stdx, at the commit colibri pins, whose `crypto.init` makes the
         // context colibri's TLS takes (colibri decision 175). build.zig asks it as colibri does,
         // so the image holds one stdx and one chapulin.
         .stdx = .{
-            .url = "git+https://github.com/c4milo/stdx#a11db0bfcf5acb176b504e60789fa731c42b0252",
-            .hash = "stdx-0.3.0-BD60to9OXQCZwP25ZzE67Ihvtvq1DoksAepvn5CBet3T",
+            .url = "git+https://github.com/c4milo/stdx#953c24cc3a9ecb150191531f359ebb471d065109",
+            .hash = "stdx-0.3.0-BD60tjRdXQDRAL6x5HhzmBgLApdXv1q4k-PHrftpw-T9",
         },
     },
     .paths = .{
