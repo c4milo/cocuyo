@@ -27,20 +27,20 @@
         // engine's DoH interface (decision 33). Never of the library in `src/`. Lazy, so a build
         // that asks for none of them does not resolve it.
         .colibri = .{
-            .url = "git+https://github.com/c4milo/colibri#e9ffbac1f0097e7d277f9044d1e329e861dca023",
-            .hash = "colibri-0.21.0-Wo-AvjRptQSHRiFVymlmTpcVXuHKYqIc_V--wXfpWAyf",
+            .url = "git+https://github.com/c4milo/colibri#e7e001f7bc2ba7a9f3952217c16595913c8d0b0a",
+            .hash = "colibri-0.21.0-Wo-Avkp3tQQCuUxitwx0-hkF7-bjALOR3gARcEZZ2vrw",
             .lazy = true,
         },
-        // stdx's `platform` and `crypto`: the DoT, DoQ and DoH examples detect the CPU's features
-        // under the word `cpu`, and make the `stdx.crypto.Context` that colibri's TLS takes
+        // stdx's `platform` and `crypto`: the DoT, DoQ and DoH examples detect the CPU's features,
+        // and make the `stdx.crypto.Context` that colibri's TLS takes
         // (docs/design.md §16 decision 48, as amended). A dependency of those examples alone. No
         // module rooted in `src/` reaches stdx, and none rooted in `io/` reaches it but through
         // colibri. `zig build graph-check` holds both. Pinned at the commit that colibri pins, so
         // the context is the type colibri's TLS holds. Lazy, and requested only when cocuyo is the
         // root build, so a project depending on cocuyo never fetches it.
         .stdx = .{
-            .url = "git+https://github.com/c4milo/stdx#9dd95be8e994a7a600aa1df6635ae0dc00b0bf5a",
-            .hash = "stdx-0.3.0-BD60thJKXQDGoqyQKYSMUIPbMfsfR5A7sTlN-srIjq2d",
+            .url = "git+https://github.com/c4milo/stdx#a11db0bfcf5acb176b504e60789fa731c42b0252",
+            .hash = "stdx-0.3.0-BD60to9OXQCZwP25ZzE67Ihvtvq1DoksAepvn5CBet3T",
             .lazy = true,
         },
     },

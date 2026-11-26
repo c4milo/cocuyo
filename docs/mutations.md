@@ -12357,7 +12357,9 @@ examples detect the CPU, and the word `cpu` is gone (docs/design.md §16 decisio
 amended). The mutants of the word, of the old statement of the CPU and of the hook module no longer
 applied to the tree, so they left the corpus: CB1 to CB3, CU1 to CU21, CX1 to CX11, CX14, CX25 to
 CX30, SD4 and SM3. The rows below replace them. Each ran with its edit applied and its step run, on
-x86-64 Linux; each test that names it failed.
+x86-64 Linux; each test that names it failed. The same day colibri moves on to `e7e001f7`, which
+pins stdx at `a11db0b`, whose JSON reader no longer copies the CPU features. SM4 names the new pin,
+and ran again.
 
 | Id | Mutation | Caught by | Result |
 | --- | --- | --- | --- |
@@ -12374,7 +12376,7 @@ x86-64 Linux; each test that names it failed.
 | CX18 | `core`, rooted in src/, imports stdx | `zig build graph-check` | `CAUGHT` |
 | CX34 | the library's root module imports the examples' cpu_text, which imports stdx | `zig build graph-check` | `CAUGHT` |
 | PQ3 | the DoH channel hands colibri no `require_pq` | `zig build test-cocuyo_doh` | `CAUGHT` |
-| SM4 | the consumer fixture pins colibri v0.17.2, where `build.zig.zon` pins `e9ffbac1` | `zig build consumer-check` | `CAUGHT` |
+| SM4 | the consumer fixture pins colibri v0.17.2, where `build.zig.zon` pins `e7e001f7` | `zig build consumer-check` | `CAUGHT` |
 | SM5 | the consumer check compares no pin of rotor | `zig build test-tools` | `CAUGHT` |
 | SM8 | the consumer check compares no pin of stdx | `zig build test-tools` | `CAUGHT` |
 | TC17 | the DoT session's context gives its crypto a default | `zig build test-chapulin` | `CAUGHT` |
