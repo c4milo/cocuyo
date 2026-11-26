@@ -9,6 +9,12 @@
 //!   decoders. The engine imports both by right.
 //! - No module rooted in `src/` reaches a module of colibri, at any depth.
 //!
+//! The tests of `io/` make their `stdx.crypto.Context` through `crypto_context`, the module rooted
+//! at `tools/crypto_context.zig`, which imports stdx (§16 decision 48, as amended on 2026-11-26).
+//! So the walk from `io/` reads no import of that module either. A module that the build
+//! registers, which a consumer imports, must not reach it at any depth: only a test's root module
+//! imports it.
+//!
 //! The first part, `tools/graph_check.zig`, asks the compiler about one module's shape. This part
 //! reads the module graph that the build made: each module that a compile step of the build
 //! reaches. A module is this tree's when this build made it from a file of this tree. A module is
@@ -28,6 +34,7 @@
 const std = @import("std");
 const manifest = @import("../build.zig.zon");
 const modules = @import("modules.zig");
+const crypto_context = @import("crypto_context.zig");
 
 const assert = std.debug.assert;
 const Step = std.Build.Step;
@@ -56,11 +63,14 @@ const Rule = struct {
     /// The packages whose modules may import `package` by right. The walk from `under` reads no
     /// import of one of their modules.
     stop_at: []const Package,
+    /// The modules of this tree, by root, that may import `package` by right, which the walk from
+    /// `under` reads no import of either.
+    stop_at_roots: []const []const u8 = &.{},
 };
 
 const rules = [_]Rule{
     .{ .package = .stdx, .under = "src/", .stop_at = &.{} },
-    .{ .package = .stdx, .under = "io/", .stop_at = &.{.colibri} },
+    .{ .package = .stdx, .under = "io/", .stop_at = &.{.colibri}, .stop_at_roots = &.{crypto_context.root} },
     .{ .package = .colibri, .under = "src/", .stop_at = &.{} },
 };
 
@@ -94,6 +104,10 @@ const canaries = [_]Canary{
     // from `io/` stops.
     .{ .rule = .stdx, .root = modules.roots.cocuyo, .package = .colibri, .module = "colibri" },
     .{ .rule = .stdx, .root = modules.roots.io, .package = .colibri, .module = "colibri", .expect = .passed },
+    // The tests' `crypto_context`: below it the walk from `io/` stops, and the walk from `src/`
+    // reads on.
+    .{ .rule = .stdx, .root = modules.roots.io, .package = .stdx, .module = "stdx", .through = crypto_context.root, .expect = .passed },
+    .{ .rule = .stdx, .root = modules.roots.cocuyo, .package = .stdx, .module = "stdx", .through = crypto_context.root },
 };
 
 /// The root of each canary's root module: a file the canary itself never imports.
@@ -116,6 +130,9 @@ const Check = struct {
     step: Step,
     /// The root module of each canary whose package the build resolved, by the canary's index.
     canaries: [canaries.len]?*Module,
+    /// A module rooted in `io/` that imports `crypto_context`, as a registered module would, which
+    /// the check of registered modules must flag. Null before the build has fetched stdx.
+    registered_canary: ?*Module,
 };
 
 /// The step that fails when the build's module graph breaks a rule, or when a control fails.
@@ -124,7 +141,13 @@ pub fn add(b: *std.Build, packages: Packages) *Step {
     check.* = .{
         .step = .init(.{ .id = .custom, .name = "graph-check packages", .owner = b, .makeFn = make }),
         .canaries = @splat(null),
+        .registered_canary = null,
     };
+    if (packages.stdx) |stdx| {
+        const canary = b.createModule(.{ .root_source_file = b.path(modules.roots.io) });
+        canary.addImport("crypto_context", crypto_context.module(b, stdx.module("stdx")));
+        check.registered_canary = canary;
+    }
     for (canaries, &check.canaries) |canary, *slot| {
         const found = packages.of(canary.package) orelse continue;
         // The caller passes each package in its own field.
@@ -163,13 +186,14 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const b = step.owner;
-    const reached = try reach(arena, try compile_roots(arena, b), &.{});
+    const reached = try reach(arena, try compile_roots(arena, b), &.{}, &.{});
     for (rules) |rule| {
         if (!reaches_under(b, reached, rule.under)) {
             return step.fail("graph-check BROKEN: the walk reached no module rooted in {s}", .{rule.under});
         }
     }
     try check_canaries(step, check, arena, reached);
+    try check_registered(step, check, arena);
     for (rules) |rule| {
         const found = try find(arena, b, reached, rule) orelse continue;
         const importer = name_of(b, found.importer);
@@ -177,7 +201,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             found.root, @tagName(rule.package), root_path(found.reached), importer[0], importer[1], rule.under, @tagName(rule.package),
         });
     }
-    std.debug.print("graph-check: of {d} modules, none rooted in src/ reaches stdx or colibri, and none rooted in io/ reaches stdx but below colibri\n", .{reached.len});
+    std.debug.print("graph-check: of {d} modules, none rooted in src/ reaches stdx or colibri, none rooted in io/ reaches stdx but below colibri or the tests' crypto_context, and no registered module reaches crypto_context\n", .{reached.len});
 }
 
 /// Fails the step when a rule does not say of a canary what it must, or when the graph holds a
@@ -198,12 +222,37 @@ fn check_canary(step: *Step, arena: std.mem.Allocator, canary: Canary, root: *Mo
     const rule = rule_of(canary) orelse {
         return step.fail("graph-check BROKEN: no rule of {s} reads the module rooted at {s}", .{ @tagName(canary.rule), canary.root });
     };
-    const flagged = try find(arena, step.owner, try reach(arena, &.{root}, &.{}), rule) != null;
+    const flagged = try find(arena, step.owner, try reach(arena, &.{root}, &.{}, &.{}), rule) != null;
     if (flagged == (canary.expect == .flagged)) return;
     return step.fail("graph-check BROKEN: the rule of {s} in {s} {s} a module rooted at {s} that imports {s}'s {s}{s}{s}", .{
         @tagName(rule.package),   rule.under,    if (flagged) "flags" else "passes",              canary.root,
         @tagName(canary.package), canary.module, if (canary.through == null) "" else " through ", canary.through orelse "",
     });
+}
+
+/// Fails the step when a module the build registers reaches `crypto_context`, which only a test's
+/// root module may import, or when the check passes its canary.
+fn check_registered(step: *Step, check: *const Check, arena: std.mem.Allocator) !void {
+    if (check.registered_canary) |canary| {
+        if (try reaching_crypto_context(arena, &.{canary}) == null) {
+            return step.fail("graph-check BROKEN: the check of registered modules passes a module that imports crypto_context", .{});
+        }
+    }
+    const registered = step.owner.modules.values();
+    const found = try reaching_crypto_context(arena, registered) orelse return;
+    return step.fail("graph-check FAILED: the registered module rooted at {s} reaches {s}, which only a test's root module may import", .{
+        root_path(found), crypto_context.root,
+    });
+}
+
+/// The first of `roots` that reaches a module rooted at `crypto_context`'s root, at any depth.
+fn reaching_crypto_context(arena: std.mem.Allocator, roots: []const *Module) !?*const Module {
+    for (roots) |root| {
+        for (try reach(arena, &.{root}, &.{}, &.{})) |module| {
+            if (std.mem.eql(u8, root_path(module), crypto_context.root)) return root;
+        }
+    }
+    return null;
 }
 
 /// The rule of the canary's package whose directory holds the canary's root.
@@ -250,17 +299,38 @@ fn compile_roots(arena: std.mem.Allocator, b: *std.Build) ![]const *Module {
 }
 
 /// Each module of `roots`, and each module that one of them imports, at any depth, once. The walk
-/// reads no import of a module of one of `stop_at`.
-fn reach(arena: std.mem.Allocator, roots: []const *Module, stop_at: []const Package) ![]const *Module {
+/// reads no import of a module of one of `stop_at`, or of a module of this tree rooted at one of
+/// `stop_at_roots`.
+fn reach(
+    arena: std.mem.Allocator,
+    roots: []const *Module,
+    stop_at: []const Package,
+    stop_at_roots: []const []const u8,
+) ![]const *Module {
     var found: std.AutoArrayHashMapUnmanaged(*Module, void) = .empty;
     for (roots) |root| try found.put(arena, root, {});
     var at: usize = 0;
     while (at < found.count()) : (at += 1) {
         const module = found.keys()[at];
-        if (of_any(module, stop_at)) continue;
+        if (stops(module, stop_at, stop_at_roots)) continue;
         for (module.import_table.values()) |imported| try found.put(arena, imported, {});
     }
     return found.keys();
+}
+
+/// Whether a walk reads no import of `module`: a module of one of `stop_at`, or a module rooted at
+/// one of `stop_at_roots`.
+fn stops(module: *const Module, stop_at: []const Package, stop_at_roots: []const []const u8) bool {
+    if (of_any(module, stop_at)) return true;
+    const root = module.root_source_file orelse return false;
+    const path = switch (root) {
+        .src_path => |source| source.sub_path,
+        else => return false,
+    };
+    for (stop_at_roots) |stop_root| {
+        if (std.mem.eql(u8, path, stop_root)) return true;
+    }
+    return false;
 }
 
 /// The path of `module`'s root in this tree, when this build made the module from a file of it.
@@ -305,9 +375,9 @@ fn find(arena: std.mem.Allocator, b: *std.Build, reached: []const *Module, rule:
     for (reached) |module| {
         const root = tree_root(b, module) orelse continue;
         if (!std.mem.startsWith(u8, root, rule.under)) continue;
-        const closure = try reach(arena, &.{module}, rule.stop_at);
+        const closure = try reach(arena, &.{module}, rule.stop_at, rule.stop_at_roots);
         const target = first_of(closure, rule.package) orelse continue;
-        return .{ .root = root, .reached = target, .importer = importer_of(closure, target, rule.stop_at) };
+        return .{ .root = root, .reached = target, .importer = importer_of(closure, target, rule) };
     }
     return null;
 }
@@ -320,13 +390,13 @@ fn first_of(reached: []const *Module, package: Package) ?*const Module {
     return null;
 }
 
-/// A module among `reached` that imports `target`. The walk read no import of a module of one of
-/// `stop_at`, so none of those is the one. `reached` starts with the module the walk started at,
+/// A module among `reached` that imports `target`. The walk read no import of a module where the
+/// rule stops, so none of those is the one. `reached` starts with the module the walk started at,
 /// which is the importer when none of `reached` imports `target`.
-fn importer_of(reached: []const *Module, target: *const Module, stop_at: []const Package) *const Module {
+fn importer_of(reached: []const *Module, target: *const Module, rule: Rule) *const Module {
     assert(reached.len > 0);
     for (reached) |module| {
-        if (of_any(module, stop_at)) continue;
+        if (stops(module, rule.stop_at, rule.stop_at_roots)) continue;
         for (module.import_table.values()) |imported| {
             if (imported == target) return module;
         }

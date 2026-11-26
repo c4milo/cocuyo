@@ -132,7 +132,9 @@ The architecture depends on every rule in this section.
   `wire` and holds no cryptography, and `sim` reads the first three and `dnssec`. `resolver` cannot reach `config`, and `zig build graph-check` compiles a fixture to show
   the compiler rejects it. Its second part (`build/graph_check_packages.zig`) walks each module's
   imports at any depth: `src/` reaches neither colibri nor stdx, and `io/` reaches stdx only
-  through colibri.
+  through colibri. The tests of `io/` alone also reach it through `tools/crypto_context.zig`,
+  which makes their `stdx.crypto.Context`, and no registered module may reach that module (design
+  §16 decision 48, as amended on 2026-11-26).
 - `io/` holds the engine of §19 step 13, outside `src/` because it owns sockets. It reads
   `cocuyo` and a `rotor` import the build binds to `sim`, so `zig build test-io` runs it on the
   twin, and to rotor itself for `zig build bench-cares` alone. It is exported as `cocuyo_rotor`,
@@ -198,7 +200,8 @@ The architecture depends on every rule in this section.
   examples alone, approved by the owner on 2026-10-20 (design §16 decision 48 as amended):
   `build.zig.zon` pins it by hash as a lazy dependency at the commit colibri pins, and only the
   root build requests it. `zig build graph-check` fails when a module of `src/` reaches it, or a
-  module of `io/` reaches it other than through colibri.
+  module of `io/` reaches it other than through colibri or, for the tests,
+  `tools/crypto_context.zig`.
   hickory-dns's DNSSEC conformance suite is a ruled dependency of the conformance check alone,
   approved by the owner on 2026-11-03 (c4milo/cocuyo#59, design §25 step 17), with Docker and a
   Rust toolchain in its one CI job: `tools/conformance/run.sh` fetches it at a pinned commit and

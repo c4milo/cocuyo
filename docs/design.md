@@ -3717,6 +3717,23 @@ step until `zig build test` passes.
       computes. When they reach stdx's main, a test needs `init` through the context's type, and
       not a struct of two fields.
 
+    **Amended by the owner on 2026-11-26: the tests of `io/` make their context through stdx.**
+    stdx v0.4.0, which colibri v0.22.0 pins, adds those fields, so `stdx.crypto.init` alone makes a
+    context. colibri names the type and not the call, and no path from the type reaches `init`.
+    - `tools/crypto_context.zig` is the module `crypto_context`, which imports stdx and calls
+      `init`. Only a test's root module imports it (`build/crypto_context.zig`): the tests of DoT
+      and DoQ run on a copy of the registered session module, and `io_doh_channel` is a module of
+      the tests alone. So a registered module stays as a consumer gets it.
+    - `zig build graph-check` reads no import of `crypto_context` in the walk from `io/`, and fails
+      a registered module that reaches it at any depth. Canaries hold both rules: a module of `io/`
+      through `crypto_context` passes, one of `src/` through it is flagged, and a module of `io/`
+      that imports it, as a registered one would, is flagged.
+    - The library under `io/` still reaches stdx only through colibri.
+
+    Rejected: `Context.init` in stdx, a new public name, so a stdx release and a colibri release
+    before cocuyo could move; and an `init` that colibri's `tls` exports under its own name, a
+    colibri release for a call colibri does not make.
+
     Rejected: the word, off by default, which made each example offer ChaCha20 alone where stdx
     states the timing; and the word as a no-op, a name for nothing.
 

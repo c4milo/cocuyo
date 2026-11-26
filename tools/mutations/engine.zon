@@ -3135,7 +3135,7 @@
         .id = "CX20",
         .what = "the check holds no rule of stdx for io/",
         .edits = .{
-            .{ .file = "build/graph_check_packages.zig", .old = "    .{ .package = .stdx, .under = \"io/\", .stop_at = &.{.colibri} },\n", .new = "" },
+            .{ .file = "build/graph_check_packages.zig", .old = "    .{ .package = .stdx, .under = \"io/\", .stop_at = &.{.colibri}, .stop_at_roots = &.{crypto_context.root} },\n", .new = "" },
         },
         .caught_by = .{ .step = "graph-check" },
     },
@@ -3153,7 +3153,7 @@
         .id = "CX22",
         .what = "the walk reads no import of any module",
         .edits = .{
-            .{ .file = "build/graph_check_packages.zig", .old = "        if (of_any(module, stop_at)) continue;\n        for (module.import_table.values()) |imported| try found.put(arena, imported, {});\n", .new = "        _ = .{ module, stop_at };\n" },
+            .{ .file = "build/graph_check_packages.zig", .old = "        if (stops(module, stop_at, stop_at_roots)) continue;\n        for (module.import_table.values()) |imported| try found.put(arena, imported, {});\n", .new = "        _ = .{ module, stop_at, stop_at_roots };\n" },
         },
         .caught_by = .{ .step = "graph-check" },
     },
@@ -3180,7 +3180,7 @@
         .id = "CX31",
         .what = "the walk from each module reads its direct imports alone",
         .edits = .{
-            .{ .file = "build/graph_check_packages.zig", .old = "        const closure = try reach(arena, &.{module}, rule.stop_at);\n", .new = "        _ = arena;\n        const closure = module.import_table.values();\n" },
+            .{ .file = "build/graph_check_packages.zig", .old = "        const closure = try reach(arena, &.{module}, rule.stop_at, rule.stop_at_roots);\n", .new = "        _ = arena;\n        const closure = module.import_table.values();\n" },
         },
         .caught_by = .{ .step = "graph-check" },
     },
@@ -3189,7 +3189,7 @@
         .id = "CX32",
         .what = "the walk from src/ stops at a module of colibri, as the walk from io/ does",
         .edits = .{
-            .{ .file = "build/graph_check_packages.zig", .old = "        const closure = try reach(arena, &.{module}, rule.stop_at);\n", .new = "        const closure = try reach(arena, &.{module}, &.{.colibri});\n" },
+            .{ .file = "build/graph_check_packages.zig", .old = "        const closure = try reach(arena, &.{module}, rule.stop_at, rule.stop_at_roots);\n", .new = "        const closure = try reach(arena, &.{module}, &.{.colibri}, rule.stop_at_roots);\n" },
         },
         .caught_by = .{ .step = "graph-check" },
     },
@@ -3198,7 +3198,7 @@
         .id = "CX33",
         .what = "the walk from io/ reads below a module of colibri",
         .edits = .{
-            .{ .file = "build/graph_check_packages.zig", .old = "    .{ .package = .stdx, .under = \"io/\", .stop_at = &.{.colibri} },\n", .new = "    .{ .package = .stdx, .under = \"io/\", .stop_at = &.{} },\n" },
+            .{ .file = "build/graph_check_packages.zig", .old = "    .{ .package = .stdx, .under = \"io/\", .stop_at = &.{.colibri}, .stop_at_roots = &.{crypto_context.root} },\n", .new = "    .{ .package = .stdx, .under = \"io/\", .stop_at = &.{}, .stop_at_roots = &.{crypto_context.root} },\n" },
         },
         .caught_by = .{ .step = "graph-check" },
     },
@@ -3885,11 +3885,47 @@
     .{
         .section = "The session module",
         .id = "SM4",
-        .what = "the consumer fixture pins colibri v0.17.2, where build.zig.zon pins 7df385cd",
+        .what = "the consumer fixture pins colibri v0.17.2, where build.zig.zon pins v0.22.0",
         .edits = .{
-            .{ .file = "test/consumer/build.zig.zon", .old = ".hash = \"colibri-0.21.0-Wo-AvmtxtQRmIma4g5ZQEeGOfEl3e9i7I4SnCkTykbbo\",", .new = ".hash = \"colibri-0.17.2-Wo-Avn1vsgRPhQacsHtGAHD178K6cTcRXasxu7r0S8bE\"," },
+            .{ .file = "test/consumer/build.zig.zon", .old = ".hash = \"colibri-0.22.0-Wo-AvgNytQS8-VMYECNkmq-0jfTPlxonDgai4iYecItq\",", .new = ".hash = \"colibri-0.17.2-Wo-Avn1vsgRPhQacsHtGAHD178K6cTcRXasxu7r0S8bE\"," },
         },
         .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The tests' crypto context",
+        .id = "CG1",
+        .what = "the walk from io/ reads on below the tests' crypto_context",
+        .edits = .{
+            .{ .file = "build/graph_check_packages.zig", .old = ".{ .package = .stdx, .under = \"io/\", .stop_at = &.{.colibri}, .stop_at_roots = &.{crypto_context.root} },", .new = ".{ .package = .stdx, .under = \"io/\", .stop_at = &.{.colibri} }," },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The tests' crypto context",
+        .id = "CG2",
+        .what = "the registered DoT session imports the tests' crypto_context",
+        .edits = .{
+            .{ .file = "build/dot.zig", .old = "    const session = bind(graph, resolved, loop);\n", .new = "    const session = bind(graph, resolved, loop);\n    session.addImport(\"context_of_tests\", crypto_context.module(b, stdx));\n" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The tests' crypto context",
+        .id = "CG3",
+        .what = "the check of registered modules finds no crypto_context",
+        .edits = .{
+            .{ .file = "build/graph_check_packages.zig", .old = "if (std.mem.eql(u8, root_path(module), crypto_context.root)) return root;", .new = "if (std.mem.eql(u8, root_path(module), \"nothing\")) return root;" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The tests' crypto context",
+        .id = "CG4",
+        .what = "the walk from src/ stops below the tests' crypto_context too",
+        .edits = .{
+            .{ .file = "build/graph_check_packages.zig", .old = ".{ .package = .stdx, .under = \"src/\", .stop_at = &.{} },", .new = ".{ .package = .stdx, .under = \"src/\", .stop_at = &.{}, .stop_at_roots = &.{crypto_context.root} }," },
+        },
+        .caught_by = .{ .step = "graph-check" },
     },
 
     .{

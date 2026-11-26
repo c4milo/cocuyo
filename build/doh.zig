@@ -5,6 +5,7 @@
 //! do (`build/doq.zig`).
 const std = @import("std");
 const modules = @import("modules.zig");
+const crypto_context = @import("crypto_context.zig");
 
 /// Binds colibri's one module into the tests' module, whose `client` and `tls` the channel reads,
 /// and whose `server` the tests answer with, and adds `zig build test-cocuyo_doh`: the type against colibri's server in memory,
@@ -21,7 +22,11 @@ pub fn add(
     lazy: modules.Lazy,
 ) void {
     const dependency = lazy.colibri orelse return;
+    // The tests make their context through `crypto_context`. `io_doh_channel` is a module of the
+    // tests alone, which no consumer imports.
+    const stdx = lazy.stdx orelse return;
     const module = graph.io_doh_channel;
+    module.addImport("crypto_context", crypto_context.module(b, stdx));
     module.addImport("colibri", dependency.module("colibri"));
     module.addImport("io", graph.io);
     // The tests hold the sizes `cocuyo_doh` copies to the engine's and to `cocuyo_quic`'s.
@@ -33,7 +38,6 @@ pub fn add(
     test_step.dependOn(run);
     b.step("test-cocuyo_doh", "Run cocuyo_doh's tests, over colibri's client and server").dependOn(run);
     const loop = lazy.rotor orelse return;
-    const stdx = lazy.stdx orelse return;
     test_step.dependOn(add_example(b, target, optimize, graph, dependency, loop, stdx));
 }
 

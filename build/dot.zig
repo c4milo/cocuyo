@@ -16,12 +16,14 @@
 //! bound here as a consumer binds them.
 const std = @import("std");
 const modules = @import("modules.zig");
+const crypto_context = @import("crypto_context.zig");
 
 /// `zig build test-chapulin`, the session's own tests, which need no network; and, where stdx
 /// resolved, `zig build example-dot-rotor`, lookups over DNS over TLS. The gate runs the tests and
 /// builds the example, so a colibri that breaks the session fails it. Nothing until colibri and
 /// rotor are fetched, which the build runner does the first time it sees them requested. The
-/// session's `io` is the registered engine, whose `rotor` the tests need bound too.
+/// session's `io` is the registered engine, whose `rotor` the tests need bound too. The tests make
+/// their context through `crypto_context`, so they wait for stdx as well.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -32,12 +34,12 @@ pub fn add(
 ) void {
     const resolved = lazy.colibri orelse return;
     const loop = lazy.rotor orelse return;
+    const stdx = lazy.stdx orelse return;
     const session = bind(graph, resolved, loop);
-    const tests = b.addTest(.{ .name = "chapulin", .root_module = session });
+    const tests = b.addTest(.{ .name = "chapulin", .root_module = crypto_context.test_module(b, session, stdx) });
     const run = &b.addRunArtifact(tests).step;
     b.step("test-chapulin", "Run the DoT session's tests, over colibri's tls").dependOn(run);
     test_step.dependOn(run);
-    const stdx = lazy.stdx orelse return;
     test_step.dependOn(add_example(b, target, optimize, graph, loop, stdx));
 }
 

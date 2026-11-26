@@ -2,9 +2,9 @@
 //! 2026-11-26). A test names a case, and owns the stream that its context's random source draws
 //! from, so each run draws what the last drew. The DoT, DoQ and DoH tests share it.
 //!
-//! The tests reach no stdx (§16 decision 48). At the commit that colibri pins, the context that
-//! colibri's TLS takes is a plain struct of the CPU's features and the random source. So a test
-//! names both, through the type that colibri's `tls.Client` names, and `CpuFeatures.detect` is a
+//! Since stdx v0.4.0, `stdx.crypto.init` alone makes the context that colibri's TLS takes. So the
+//! tests make it through `crypto_context`, a module of `tools/`, the one module of stdx that a test
+//! of `io/` imports (§16 decision 48, as amended on 2026-11-26). `CpuFeatures.detect` is a
 //! declaration of the features' own type.
 //!
 //! stdx states the timing of the AES instructions to chapulin on x86-64 from detection, and on
@@ -15,9 +15,15 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const tls = @import("colibri").tls;
+const crypto_context = @import("crypto_context");
 
 /// The consumer's context, as colibri's TLS names it.
 pub const Crypto = @FieldType(tls.Client, "crypto");
+
+comptime {
+    // colibri's TLS takes the context that stdx makes.
+    std.debug.assert(Crypto == crypto_context.Context);
+}
 /// stdx's `platform.CpuFeatures`, as the context names it.
 pub const CpuFeatures = @FieldType(Crypto, "features");
 
@@ -50,7 +56,7 @@ pub fn stream(seed_octet: u8) std.Random.ChaCha {
 /// `aes_not_stated` off arm64, where stdx states the timing of each core.
 pub fn crypto(case: Case, source: *std.Random.ChaCha) ?Crypto {
     const features = features_of(case) orelse return null;
-    return .{ .features = features, .random = source.random() };
+    return crypto_context.init(features, source.random());
 }
 
 /// Whether this host can state `case`. On arm64 a case that offers AES-GCM sets the thread's

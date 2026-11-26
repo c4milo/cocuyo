@@ -8,10 +8,12 @@
 //! tests and the example use that module, with colibri bound into it here as a consumer binds it.
 const std = @import("std");
 const modules = @import("modules.zig");
+const crypto_context = @import("crypto_context.zig");
 
-/// `zig build test-chapulin-quic`, the session's own tests; and, where rotor and stdx resolved,
-/// `zig build example-doq-rotor`, lookups over DNS over QUIC. The gate runs the tests and builds
-/// the example, so a colibri that breaks the session fails it.
+/// `zig build test-chapulin-quic`, the session's own tests, where stdx resolved, since they make
+/// their context through `crypto_context`; and, where rotor resolved too, `zig build
+/// example-doq-rotor`, lookups over DNS over QUIC. The gate runs the tests and builds the example,
+/// so a colibri that breaks the session fails it.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -21,13 +23,13 @@ pub fn add(
     lazy: modules.Lazy,
 ) void {
     const resolved = lazy.colibri orelse return;
+    const stdx = lazy.stdx orelse return;
     const session = bind(graph, resolved);
-    const tests = b.addTest(.{ .name = "chapulin_quic", .root_module = session });
+    const tests = b.addTest(.{ .name = "chapulin_quic", .root_module = crypto_context.test_module(b, session, stdx) });
     const run_tests = &b.addRunArtifact(tests).step;
     b.step("test-chapulin-quic", "Run the DoQ session's tests, over colibri's tls").dependOn(run_tests);
     test_step.dependOn(run_tests);
     const dependency = lazy.rotor orelse return;
-    const stdx = lazy.stdx orelse return;
     const engine = b.createModule(.{ .root_source_file = b.path(modules.roots.io), .target = target, .optimize = optimize });
     engine.addImport("cocuyo", graph.cocuyo);
     modules.add_internal(engine, graph);
