@@ -4,7 +4,7 @@
 //! next deadline with it.
 const std = @import("std");
 const assert = std.debug.assert;
-const quic = @import("quic");
+const quic = @import("colibri").quic;
 const constants = @import("io_quic_constants.zig");
 const limits = @import("io_quic_limits.zig");
 

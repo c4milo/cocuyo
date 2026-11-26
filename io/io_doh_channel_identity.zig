@@ -24,7 +24,8 @@
 //! `openssl ec -in leaf.key -outform DER`. `identity.pub` is the leaf's point X||Y, the last 64
 //! octets of `openssl ec -in leaf.key -pubout -outform DER`, after the 0x04 that marks it
 //! uncompressed.
-const tls = @import("tls");
+const std = @import("std");
+const tls = @import("colibri").tls;
 const start_module = @import("io_doh_channel_start.zig");
 
 /// The leaf, then nothing: the server's chain (RFC 9846 §4.5.1).
@@ -57,20 +58,21 @@ pub const unix_seconds: u64 = 1_780_272_000;
 /// The roots a test's context trusts: the identity's CA alone.
 pub const anchors = [_]tls.Anchor{anchor};
 
-/// What a test states of the CPU when it names nothing: no answer of the probe, and no timing
-/// mode. The test servers state it too. A consumer that cannot state its thread's mode passes it,
-/// and its hello offers TLS_CHACHA20_POLY1305_SHA256 alone (docs/design.md §16 decision 48).
-pub const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated };
+/// What the tests state of the CPU, and the streams their contexts draw from
+/// (`io_crypto_test_support.zig`). With no instruction, a hello offers TLS_CHACHA20_POLY1305_SHA256
+/// alone (docs/design.md §16 decision 48). The test servers state no instruction either.
+pub const support = @import("io_crypto_test_support.zig");
 
 /// A channel's context for a test over the identity. Its anchors are the identity's CA, and its
-/// wall clock is `unix_seconds` at `now_ns`. Its stream is seeded with `seed_octet` repeated, so
-/// each run draws what the last drew. It states nothing of the CPU. Never for a network, whose
-/// seed comes from a CSPRNG.
-pub fn test_context(seed_octet: u8, now_ns: u64) start_module.Context {
-    return test_context_with(cpu_not_stated, seed_octet, now_ns);
+/// wall clock is `unix_seconds` at `now_ns`. It draws from `source`, which a seed repeated seeds,
+/// so each run draws what the last drew, and which outlives the channel. It states no instruction.
+/// Never for a network, whose source is a CSPRNG's.
+pub fn test_context(source: *std.Random.ChaCha, now_ns: u64) start_module.Context {
+    return test_context_with(.nothing, source, now_ns).?;
 }
 
-/// As `test_context`, with the statement of the CPU that the test names.
-pub fn test_context_with(cpu: tls.Cpu, seed_octet: u8, now_ns: u64) start_module.Context {
-    return .init(&anchors, cpu, @splat(seed_octet), .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns });
+/// As `test_context`, with the CPU that `case` names. Null where this host cannot state it.
+pub fn test_context_with(case: support.Case, source: *std.Random.ChaCha, now_ns: u64) ?start_module.Context {
+    const crypto = support.crypto(case, source) orelse return null;
+    return .init(&anchors, crypto, .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns });
 }

@@ -1432,12 +1432,13 @@
     .{
         .section = "The context a session starts from",
         .id = "TC17",
-        .what = "the DoT session's context leaves its stream undefined by default, as before the ruling",
+        .what = "the DoT session's context gives its crypto a default",
         .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = "        stream: std.Random.ChaCha,\n", .new = "        stream: std.Random.ChaCha = undefined,\n" },
+            .{ .file = "io/io_chapulin.zig", .old = "        crypto: Crypto,\n", .new = "        crypto: Crypto = undefined,\n" },
         },
         .caught_by = .{ .step = "test-chapulin" },
     },
+
     .{
         .section = "The context a session starts from",
         .id = "TC18",
@@ -1468,12 +1469,13 @@
     .{
         .section = "The context a session starts from",
         .id = "TC21",
-        .what = "the DoQ session's context seeds its stream with zeros by default, as before the ruling",
+        .what = "the DoQ session's context gives its crypto a default",
         .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = "        stream: std.Random.ChaCha,\n", .new = "        stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(0)),\n" },
+            .{ .file = "io/io_chapulin_quic.zig", .old = "        crypto: Crypto,\n", .new = "        crypto: Crypto = undefined,\n" },
         },
         .caught_by = .{ .step = "test-chapulin-quic" },
     },
+
     .{
         .section = "The context a session starts from",
         .id = "TC22",
@@ -1495,12 +1497,13 @@
     .{
         .section = "The context a session starts from",
         .id = "TC24",
-        .what = "cocuyo_doh's context seeds its stream with zeros by default, as before the ruling",
+        .what = "cocuyo_doh's context gives its crypto a default",
         .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = "    stream: std.Random.ChaCha,\n", .new = "    stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(0)),\n" },
+            .{ .file = "io/io_doh_channel_start.zig", .old = "    crypto: Crypto,\n", .new = "    crypto: Crypto = undefined,\n" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
+
     .{
         .section = "The context a session starts from",
         .id = "TC25",
@@ -2963,320 +2966,105 @@
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
     .{
-        .section = "The CPU a context states",
-        .id = "CB1",
-        .what = "the DoT session states the AES instructions and a data-independent timing, whatever its context states",
+        .section = "The CPU a context holds",
+        .id = "CY1",
+        .what = "the DoT session hands colibri no instruction, whatever its context holds",
         .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent }, .require_pq = server.require_post_quantum })" },
+            .{ .file = "io/io_chapulin.zig", .old = ".crypto = context.crypto, .require_pq = server.require_post_quantum }", .new = ".crypto = .{ .features = .none(), .random = context.crypto.random }, .require_pq = server.require_post_quantum }" },
         },
         .caught_by = .{ .step = "test-chapulin" },
     },
+
     .{
-        .section = "The CPU a context states",
-        .id = "CB2",
-        .what = "the DoQ session states the AES instructions and a data-independent timing, whatever its context states",
+        .section = "The CPU a context holds",
+        .id = "CY2",
+        .what = "the DoQ session hands colibri no instruction, whatever its context holds",
         .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent }, .require_pq = server.require_post_quantum })" },
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".alpn = &self.alpn, .crypto = context.crypto,", .new = ".alpn = &self.alpn, .crypto = .{ .features = .none(), .random = context.crypto.random }," },
         },
         .caught_by = .{ .step = "test-chapulin-quic" },
     },
+
     .{
-        .section = "The CPU a context states",
-        .id = "CB3",
-        .what = "the DoH channel states the AES instructions and a data-independent timing, whatever its context states",
+        .section = "The CPU a context holds",
+        .id = "CY3",
+        .what = "the DoH channel hands colibri no instruction, whatever its context holds",
         .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent }, .require_pq = context.tls.require_post_quantum }," },
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".crypto = self.context.crypto, .require_pq = context.tls.require_post_quantum },", .new = ".crypto = .{ .features = .none(), .random = self.context.crypto.random }, .require_pq = context.tls.require_post_quantum }," },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
+
     .{
-        .section = "The CPU a context states",
-        .id = "CU1",
-        .what = "the DoT session's context states nothing of the CPU by default",
+        .section = "The CPU a context holds",
+        .id = "CY4",
+        .what = "the DoT session's hello draws from a fixed source, and not from its context's",
         .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = "        cpu: Cpu,\n", .new = "        cpu: Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated },\n" },
+            .{ .file = "io/io_chapulin.zig", .old = ".crypto = context.crypto, .require_pq = server.require_post_quantum }", .new = ".crypto = .{ .features = context.crypto.features, .random = .{ .ptr = undefined, .fillFn = struct { fn fill(_: *anyopaque, octets: []u8) void { @memset(octets, 1); } }.fill } }, .require_pq = server.require_post_quantum }" },
         },
         .caught_by = .{ .step = "test-chapulin" },
     },
+
     .{
-        .section = "The CPU a context states",
-        .id = "CU2",
-        .what = "the DoT session's context keeps the consumer's probe and drops its timing mode",
+        .section = "The CPU a context holds",
+        .id = "CY5",
+        .what = "the DoQ session's hello draws from a fixed source, and not from its context's",
         .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = ".cpu = cpu, .stream = std.Random.ChaCha.init(seed)", .new = ".cpu = .{ .probe = cpu.probe, .timing = .not_stated }, .stream = std.Random.ChaCha.init(seed)" },
-        },
-        .caught_by = .{ .step = "test-chapulin" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU3",
-        .what = "the DoT session states nothing of the CPU, whatever its context states",
-        .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated }, .require_pq = server.require_post_quantum })" },
-        },
-        .caught_by = .{ .step = "test-chapulin" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU4",
-        .what = "the DoT session states a data-independent timing, whatever its context states",
-        .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = context.cpu.probe, .timing = .data_independent }, .require_pq = server.require_post_quantum })" },
-        },
-        .caught_by = .{ .step = "test-chapulin" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU5",
-        .what = "the DoQ session's context states nothing of the CPU by default",
-        .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = "        cpu: Cpu,\n", .new = "        cpu: Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated },\n" },
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".alpn = &self.alpn, .crypto = context.crypto,", .new = ".alpn = &self.alpn, .crypto = .{ .features = context.crypto.features, .random = .{ .ptr = undefined, .fillFn = struct { fn fill(_: *anyopaque, octets: []u8) void { @memset(octets, 1); } }.fill } }," },
         },
         .caught_by = .{ .step = "test-chapulin-quic" },
     },
+
     .{
-        .section = "The CPU a context states",
-        .id = "CU6",
-        .what = "the DoQ session's context keeps the consumer's probe and drops its timing mode",
+        .section = "The CPU an example detects",
+        .id = "CD1",
+        .what = "the example detects no instruction, whatever the CPU has",
         .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = cpu, .stream = std.Random.ChaCha.init(seed)", .new = ".cpu = .{ .probe = cpu.probe, .timing = .not_stated }, .stream = std.Random.ChaCha.init(seed)" },
-        },
-        .caught_by = .{ .step = "test-chapulin-quic" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU7",
-        .what = "the DoQ session states nothing of the CPU, whatever its context states",
-        .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated }, .require_pq = server.require_post_quantum })" },
-        },
-        .caught_by = .{ .step = "test-chapulin-quic" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU8",
-        .what = "the DoQ session states a data-independent timing, whatever its context states",
-        .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = context.cpu.probe, .timing = .data_independent }, .require_pq = server.require_post_quantum })" },
-        },
-        .caught_by = .{ .step = "test-chapulin-quic" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU9",
-        .what = "cocuyo_doh's context states nothing of the CPU by default",
-        .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = "    cpu: tls.Cpu,\n", .new = "    cpu: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated },\n" },
-        },
-        .caught_by = .{ .step = "test-cocuyo_doh" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU10",
-        .what = "cocuyo_doh's context keeps the consumer's probe and drops its timing mode",
-        .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = cpu, .stream = std.Random.ChaCha.init(seed)", .new = ".cpu = .{ .probe = cpu.probe, .timing = .not_stated }, .stream = std.Random.ChaCha.init(seed)" },
-        },
-        .caught_by = .{ .step = "test-cocuyo_doh" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU11",
-        .what = "the DoH channel states nothing of the CPU, whatever its context states",
-        .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },", .new = ".cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated }, .require_pq = context.tls.require_post_quantum }," },
-        },
-        .caught_by = .{ .step = "test-cocuyo_doh" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU12",
-        .what = "the DoH channel states a data-independent timing, whatever its context states",
-        .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },", .new = ".cpu = .{ .probe = self.context.cpu.probe, .timing = .data_independent }, .require_pq = context.tls.require_post_quantum }," },
-        },
-        .caught_by = .{ .step = "test-cocuyo_doh" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU13",
-        .what = "the DoT session states the AES instructions found, whatever its probe found",
-        .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = context.cpu.probe.dit, .sha256 = context.cpu.probe.sha256, .sha512 = context.cpu.probe.sha512, .sha3 = context.cpu.probe.sha3, .ssse3 = context.cpu.probe.ssse3, .sse4_1 = context.cpu.probe.sse4_1, .avx2 = context.cpu.probe.avx2, .vaes = context.cpu.probe.vaes }, .timing = context.cpu.timing }, .require_pq = server.require_post_quantum })" },
-        },
-        .caught_by = .{ .step = "test-chapulin" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU14",
-        .what = "the DoT session's context states the AES instructions found, whatever the consumer's probe found",
-        .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = ".cpu = cpu, .stream = std.Random.ChaCha.init(seed)", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = cpu.probe.dit }, .timing = cpu.timing }, .stream = std.Random.ChaCha.init(seed)" },
-        },
-        .caught_by = .{ .step = "test-chapulin" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU15",
-        .what = "the DoT session takes a probe that did not answer for one that found the AES instructions",
-        .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = if (context.cpu.probe.aes_clmul == .no) .no else .yes, .dit = context.cpu.probe.dit, .sha256 = context.cpu.probe.sha256, .sha512 = context.cpu.probe.sha512, .sha3 = context.cpu.probe.sha3, .ssse3 = context.cpu.probe.ssse3, .sse4_1 = context.cpu.probe.sse4_1, .avx2 = context.cpu.probe.avx2, .vaes = context.cpu.probe.vaes }, .timing = context.cpu.timing }, .require_pq = server.require_post_quantum })" },
-        },
-        .caught_by = .{ .step = "test-chapulin" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU16",
-        .what = "the DoQ session states the AES instructions found, whatever its probe found",
-        .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = context.cpu.probe.dit, .sha256 = context.cpu.probe.sha256, .sha512 = context.cpu.probe.sha512, .sha3 = context.cpu.probe.sha3, .ssse3 = context.cpu.probe.ssse3, .sse4_1 = context.cpu.probe.sse4_1, .avx2 = context.cpu.probe.avx2, .vaes = context.cpu.probe.vaes }, .timing = context.cpu.timing }, .require_pq = server.require_post_quantum })" },
-        },
-        .caught_by = .{ .step = "test-chapulin-quic" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU17",
-        .what = "the DoQ session's context states the AES instructions found, whatever the consumer's probe found",
-        .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = cpu, .stream = std.Random.ChaCha.init(seed)", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = cpu.probe.dit }, .timing = cpu.timing }, .stream = std.Random.ChaCha.init(seed)" },
-        },
-        .caught_by = .{ .step = "test-chapulin-quic" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU18",
-        .what = "the DoQ session takes a probe that did not answer for one that found the AES instructions",
-        .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = if (context.cpu.probe.aes_clmul == .no) .no else .yes, .dit = context.cpu.probe.dit, .sha256 = context.cpu.probe.sha256, .sha512 = context.cpu.probe.sha512, .sha3 = context.cpu.probe.sha3, .ssse3 = context.cpu.probe.ssse3, .sse4_1 = context.cpu.probe.sse4_1, .avx2 = context.cpu.probe.avx2, .vaes = context.cpu.probe.vaes }, .timing = context.cpu.timing }, .require_pq = server.require_post_quantum })" },
-        },
-        .caught_by = .{ .step = "test-chapulin-quic" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU19",
-        .what = "the DoH channel states the AES instructions found, whatever its probe found",
-        .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = self.context.cpu.probe.dit, .sha256 = self.context.cpu.probe.sha256, .sha512 = self.context.cpu.probe.sha512, .sha3 = self.context.cpu.probe.sha3, .ssse3 = self.context.cpu.probe.ssse3, .sse4_1 = self.context.cpu.probe.sse4_1, .avx2 = self.context.cpu.probe.avx2, .vaes = self.context.cpu.probe.vaes }, .timing = self.context.cpu.timing }, .require_pq = context.tls.require_post_quantum }," },
-        },
-        .caught_by = .{ .step = "test-cocuyo_doh" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU20",
-        .what = "cocuyo_doh's context states the AES instructions found, whatever the consumer's probe found",
-        .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = cpu, .stream = std.Random.ChaCha.init(seed)", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = cpu.probe.dit }, .timing = cpu.timing }, .stream = std.Random.ChaCha.init(seed)" },
-        },
-        .caught_by = .{ .step = "test-cocuyo_doh" },
-    },
-    .{
-        .section = "The CPU a context states",
-        .id = "CU21",
-        .what = "the DoH channel takes a probe that did not answer for one that found the AES instructions",
-        .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },", .new = ".cpu = .{ .probe = .{ .aes_clmul = if (self.context.cpu.probe.aes_clmul == .no) .no else .yes, .dit = self.context.cpu.probe.dit, .sha256 = self.context.cpu.probe.sha256, .sha512 = self.context.cpu.probe.sha512, .sha3 = self.context.cpu.probe.sha3, .ssse3 = self.context.cpu.probe.ssse3, .sse4_1 = self.context.cpu.probe.sse4_1, .avx2 = self.context.cpu.probe.avx2, .vaes = self.context.cpu.probe.vaes }, .timing = self.context.cpu.timing }, .require_pq = context.tls.require_post_quantum }," },
-        },
-        .caught_by = .{ .step = "test-cocuyo_doh" },
-    },
-    .{
-        .section = "The CPU an example states",
-        .id = "CX1",
-        .what = "the word is never read, and `cpu` is an operand",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "if (after.len > 0 and std.mem.eql(u8, after[0], word))\n", .new = "if (after.len > 0 and std.mem.eql(u8, after[0], word) and false)\n" },
+            .{ .file = "examples/cpu_text.zig", .old = "    const features = CpuFeatures.detect();\n    const set = platform.set_data_independent_timing(features, true);", .new = "    const features: CpuFeatures = .none();\n    const set = platform.set_data_independent_timing(features, true);" },
         },
         .caught_by = .{ .step = "test-examples" },
     },
+
     .{
-        .section = "The CPU an example states",
-        .id = "CX2",
-        .what = "a first argument that starts with the word is taken for it",
+        .section = "The CPU an example detects",
+        .id = "CD2",
+        .what = "the statement's line names x86-64's carry-less multiply alone",
         .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "if (after.len > 0 and std.mem.eql(u8, after[0], word))\n", .new = "if (after.len > 0 and std.mem.startsWith(u8, after[0], word))\n" },
+            .{ .file = "examples/cpu_text.zig", .old = "        answer(features.pclmul or features.pmull),", .new = "        answer(features.pclmul)," },
         },
         .caught_by = .{ .step = "test-examples" },
     },
+
     .{
-        .section = "The CPU an example states",
-        .id = "CX3",
-        .what = "the word is read anywhere on the command line",
+        .section = "The CPU an example detects",
+        .id = "CD3",
+        .what = "the statement's line names FEAT_DIT in place of the thread's mode",
         .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "if (after.len > 0 and std.mem.eql(u8, after[0], word))\n", .new = "if (for (after) |argument| {\n        if (std.mem.eql(u8, argument, word)) break true;\n    } else false)\n" },
+            .{ .file = "examples/cpu_text.zig", .old = "        answer(platform.data_independent_timing(features)),", .new = "        answer(features.dit)," },
         },
         .caught_by = .{ .step = "test-examples" },
     },
+
     .{
-        .section = "The CPU an example states",
-        .id = "CX4",
-        .what = "without the word, the example probes and states as with it",
+        .section = "The CPU an example detects",
+        .id = "CD4",
+        .what = "the example's context holds no instruction, whatever it detected",
         .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    if (!stated) return nothing(Cpu);\n", .new = "    _ = stated;\n" },
+            .{ .file = "examples/cpu_text.zig", .old = "    return stdx.crypto.init(features, secure.random());", .new = "    return stdx.crypto.init(.{ .midr = features.midr }, secure.random());" },
         },
         .caught_by = .{ .step = "test-examples" },
     },
+
     .{
-        .section = "The CPU an example states",
-        .id = "CX5",
-        .what = "the value that states nothing states a data-independent timing",
+        .section = "The session module",
+        .id = "SM8",
+        .what = "the consumer check compares no pin of stdx",
         .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated };", .new = "    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent };" },
+            .{ .file = "tools/consumer_check.zig", .old = "const pinned = [_][]const u8{ \"rotor\", \"colibri\", \"stdx\" };", .new = "const pinned = [_][]const u8{ \"rotor\", \"colibri\" };" },
         },
-        .caught_by = .{ .step = "test-examples" },
+        .caught_by = .{ .step = "test-tools" },
     },
-    .{
-        .section = "The CPU an example states",
-        .id = "CX6",
-        .what = "the value that states nothing states the AES instructions found",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated };", .new = "    return .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated };" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
-    .{
-        .section = "The CPU an example states",
-        .id = "CX7",
-        .what = "with the word, a probe that did not find FEAT_DIT still states a data-independent timing",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    const independent = probe.dit == .yes and dit_set;", .new = "    const independent = dit_set;" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
-    .{
-        .section = "The CPU an example states",
-        .id = "CX8",
-        .what = "with the word, the timing is data-independent whatever the bit reads",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    const independent = probe.dit == .yes and dit_set;", .new = "    const independent = probe.dit == .yes;\n    _ = dit_set;" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
-    .{
-        .section = "The CPU an example states",
-        .id = "CX9",
-        .what = "with the word, the statement drops the probe's answers",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "if (independent) .{ .probe = probe, .timing = .data_independent } else nothing(Cpu)", .new = "if (independent) .{ .probe = nothing(Cpu).probe, .timing = .data_independent } else nothing(Cpu)" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
-    .{
-        .section = "The CPU an example states",
-        .id = "CX10",
-        .what = "the example never sets PSTATE.DIT",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    dit_write(probe, true);\n", .new = "" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
-    .{
-        .section = "The CPU an example states",
-        .id = "CX11",
-        .what = "the example sets PSTATE.DIT where the probe did not find FEAT_DIT",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    if (probe.dit != .yes) return false;\n", .new = "" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
+
     .{
         .section = "The CPU an example states",
         .id = "CX12",
@@ -3297,15 +3085,6 @@
     },
     .{
         .section = "The CPU an example states",
-        .id = "CX14",
-        .what = "the statement's line drops the word `timing`",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "\"cpu: timing {s}, aes_clmul {s}, dit {s}\"", .new = "\"cpu: {s}, aes_clmul {s}, dit {s}\"" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
-    .{
-        .section = "The CPU an example states",
         .id = "CX15",
         .what = "a QUIC session whose ServerHello named no suite is named ChaCha20-Poly1305",
         .edits = .{
@@ -3316,12 +3095,13 @@
     .{
         .section = "The CPU an example states",
         .id = "CX16",
-        .what = "the DoH example's channel module, rooted in io/, imports stdx's platform",
+        .what = "the DoH example's channel module, rooted in io/, imports stdx",
         .edits = .{
-            .{ .file = "build/doh.zig", .old = "    doh.addImport(\"tls\", colibri.module(\"tls\"));\n", .new = "    doh.addImport(\"tls\", colibri.module(\"tls\"));\n    doh.addImport(\"platform\", platform);\n" },
+            .{ .file = "build/doh.zig", .old = "    doh.addImport(\"colibri\", colibri.module(\"colibri\"));\n", .new = "    doh.addImport(\"colibri\", colibri.module(\"colibri\"));\n    doh.addImport(\"stdx\", stdx);\n" },
         },
         .caught_by = .{ .step = "graph-check" },
     },
+
     .{
         .section = "The CPU an example states",
         .id = "CX17",
@@ -3334,12 +3114,13 @@
     .{
         .section = "The CPU an example states",
         .id = "CX18",
-        .what = "`core`, rooted in src/, imports stdx's platform",
+        .what = "`core`, rooted in src/, imports stdx",
         .edits = .{
-            .{ .file = "build/examples.zig", .old = "    module.addImport(\"platform\", probe);\n", .new = "    module.addImport(\"platform\", probe);\n    graph.core.addImport(\"platform\", probe);\n" },
+            .{ .file = "build/examples.zig", .old = "    module.addImport(\"stdx\", stdx_module);\n", .new = "    module.addImport(\"stdx\", stdx_module);\n    graph.core.addImport(\"stdx\", stdx_module);\n" },
         },
         .caught_by = .{ .step = "graph-check" },
     },
+
     .{
         .section = "The CPU an example states",
         .id = "CX19",
@@ -3396,60 +3177,6 @@
     },
     .{
         .section = "The CPU an example states",
-        .id = "CX25",
-        .what = "with the word, where the example states no mode, it states the probe's answers beside not_stated",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = ".timing = .data_independent } else nothing(Cpu);", .new = ".timing = .data_independent } else .{ .probe = probe, .timing = .not_stated };" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
-    .{
-        .section = "The CPU an example states",
-        .id = "CX26",
-        .what = "where the probe did not find FEAT_DIT, the set runs the MSR itself, and says no",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    if (probe.dit != .yes) return false;\n", .new = "    if (probe.dit != .yes) {\n        asm volatile (\"msr s3_3_c4_c2_5, %[value]\"\n            :\n            : [value] \"r\" (dit_bit),\n            : .{ .memory = true });\n        return false;\n    }\n" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
-    .{
-        .section = "The CPU an example states",
-        .id = "CX27",
-        .what = "the write of PSTATE.DIT sets the bit whatever it is asked, so the tests' clear sets it",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    const value: u64 = if (set) dit_bit else 0;\n", .new = "    const value: u64 = dit_bit;\n    _ = set;\n" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
-    .{
-        .section = "The CPU an example states",
-        .id = "CX28",
-        .what = "the command line states nothing, whatever the word",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    const cpu = state(Cpu, given.stated);\n", .new = "    const cpu = state(Cpu, false);\n" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
-    .{
-        .section = "The CPU an example states",
-        .id = "CX29",
-        .what = "the command line states as with the word, whatever it says",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    const cpu = state(Cpu, given.stated);\n", .new = "    const cpu = state(Cpu, true);\n" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
-    .{
-        .section = "The CPU an example states",
-        .id = "CX30",
-        .what = "the command line keeps the word among the operands",
-        .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    return .{ .cpu = cpu, .operands = given.operands };\n", .new = "    return .{ .cpu = cpu, .operands = arguments[1..] };\n" },
-        },
-        .caught_by = .{ .step = "test-examples" },
-    },
-    .{
-        .section = "The CPU an example states",
         .id = "CX31",
         .what = "the walk from each module reads its direct imports alone",
         .edits = .{
@@ -3478,12 +3205,13 @@
     .{
         .section = "The CPU an example states",
         .id = "CX34",
-        .what = "the library's root module imports the examples' cpu_text, which imports stdx's platform",
+        .what = "the library's root module imports the examples' cpu_text, which imports stdx",
         .edits = .{
-            .{ .file = "build/examples.zig", .old = "    module.addImport(\"platform\", probe);\n", .new = "    module.addImport(\"platform\", probe);\n    graph.cocuyo.addImport(\"cpu_text\", module);\n" },
+            .{ .file = "build/examples.zig", .old = "    module.addImport(\"stdx\", stdx_module);\n", .new = "    module.addImport(\"stdx\", stdx_module);\n    graph.cocuyo.addImport(\"cpu_text\", module);\n" },
         },
         .caught_by = .{ .step = "graph-check" },
     },
+
     .{
         .section = "The CPU an example states",
         .id = "CX35",
@@ -4156,31 +3884,24 @@
     },
     .{
         .section = "The session module",
-        .id = "SM3",
-        .what = "the build binds no chapulin_hooks into the session's module",
-        .edits = .{
-            .{ .file = "build/modules.zig", .old = "    graph.chapulin_quic.addImport(\"chapulin_hooks\", graph.chapulin_hooks);\n", .new = "" },
-        },
-        .caught_by = .{ .step = "consumer-check" },
-    },
-    .{
-        .section = "The session module",
         .id = "SM4",
-        .what = "the consumer fixture pins colibri v0.11.0, where build.zig.zon pins v0.17.2",
+        .what = "the consumer fixture pins colibri v0.17.2, where build.zig.zon pins e9ffbac1",
         .edits = .{
-            .{ .file = "test/consumer/build.zig.zon", .old = ".hash = \"colibri-0.17.2-Wo-Avn1vsgRPhQacsHtGAHD178K6cTcRXasxu7r0S8bE\",", .new = ".hash = \"colibri-0.10.0-Wo-AvtswnASeMGAf75MDVdGAz7oGtHKg1iK_uV2rioDy\"," },
+            .{ .file = "test/consumer/build.zig.zon", .old = ".hash = \"colibri-0.21.0-Wo-AvjRptQSHRiFVymlmTpcVXuHKYqIc_V--wXfpWAyf\",", .new = ".hash = \"colibri-0.17.2-Wo-Avn1vsgRPhQacsHtGAHD178K6cTcRXasxu7r0S8bE\"," },
         },
         .caught_by = .{ .step = "consumer-check" },
     },
+
     .{
         .section = "The session module",
         .id = "SM5",
-        .what = "the consumer check compares the pins of colibri alone",
+        .what = "the consumer check compares no pin of rotor",
         .edits = .{
-            .{ .file = "tools/consumer_check.zig", .old = "const pinned = [_][]const u8{ \"rotor\", \"colibri\" };", .new = "const pinned = [_][]const u8{\"colibri\"};" },
+            .{ .file = "tools/consumer_check.zig", .old = "const pinned = [_][]const u8{ \"rotor\", \"colibri\", \"stdx\" };", .new = "const pinned = [_][]const u8{ \"colibri\", \"stdx\" };" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
+
     .{
         .section = "The session module",
         .id = "SM6",
@@ -4250,15 +3971,6 @@
         .what = "the build binds no io into the DoT session's module",
         .edits = .{
             .{ .file = "build/modules.zig", .old = "    graph.chapulin.addImport(\"io\", graph.cocuyo_rotor);\n", .new = "" },
-        },
-        .caught_by = .{ .step = "consumer-check" },
-    },
-    .{
-        .section = "The DoT session module",
-        .id = "SD4",
-        .what = "the build binds no chapulin_hooks into the DoT session's module",
-        .edits = .{
-            .{ .file = "build/modules.zig", .old = "    graph.chapulin.addImport(\"chapulin_hooks\", graph.chapulin_hooks);\n", .new = "" },
         },
         .caught_by = .{ .step = "consumer-check" },
     },
@@ -4719,10 +4431,11 @@
         .id = "PQ3",
         .what = "the DoH channel hands colibri no require_pq",
         .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },", .new = ".cpu = self.context.cpu }," },
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".crypto = self.context.crypto, .require_pq = context.tls.require_post_quantum },", .new = ".crypto = self.context.crypto }," },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
+
     .{
         .section = "The post-quantum hybrid required",
         .id = "PQ4",

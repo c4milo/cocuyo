@@ -27,7 +27,7 @@ pub fn add(
     b.step("test-chapulin-quic", "Run the DoQ session's tests, over colibri's tls").dependOn(run_tests);
     test_step.dependOn(run_tests);
     const dependency = lazy.rotor orelse return;
-    const platform = lazy.platform orelse return;
+    const stdx = lazy.stdx orelse return;
     const engine = b.createModule(.{ .root_source_file = b.path(modules.roots.io), .target = target, .optimize = optimize });
     engine.addImport("cocuyo", graph.cocuyo);
     modules.add_internal(engine, graph);
@@ -45,23 +45,23 @@ pub fn add(
     module.addImport("chapulin_quic", session);
     // The verifier the word `dnssec` validates over (`examples/trust_text.zig`).
     module.addImport("cocuyo_dnssec", graph.cocuyo_dnssec);
-    // The probe the word `cpu` states the CPU from (`examples/cpu_text.zig`).
-    module.addImport("platform", platform);
+    // The CPU's features the example detects, and the context of colibri's TLS
+    // (`examples/cpu_text.zig`).
+    module.addImport("stdx", stdx);
     const exe = b.addExecutable(.{ .name = "doq-rotor", .root_module = module });
     test_step.dependOn(&exe.step);
     const run = b.addRunArtifact(exe);
     if (b.args) |arguments| run.addArgs(arguments);
-    const example = b.step("example-doq-rotor", "Lookups over DNS over QUIC: -- [cpu] [dnssec <anchors>] <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
+    const example = b.step("example-doq-rotor", "Lookups over DNS over QUIC: -- [dnssec <anchors>] <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
     example.dependOn(&run.step);
 }
 
 /// Binds colibri where a consumer that speaks DoQ binds it, as `test/consumer/build.zig` does: its
-/// `quic` into `cocuyo_quic`, and its `quic` and `tls` into `chapulin_quic`. Returns the session's
-/// module, which the build registers with the rest of its imports bound.
+/// one module, `colibri`, into `cocuyo_quic` and into `chapulin_quic` (colibri decision 170).
+/// Returns the session's module, which the build registers with the rest of its imports bound.
 fn bind(graph: modules.Graph, colibri: *std.Build.Dependency) *std.Build.Module {
-    const quic = colibri.module("quic");
-    graph.cocuyo_quic.addImport("quic", quic);
-    graph.chapulin_quic.addImport("quic", quic);
-    graph.chapulin_quic.addImport("tls", colibri.module("tls"));
+    const root = colibri.module("colibri");
+    graph.cocuyo_quic.addImport("colibri", root);
+    graph.chapulin_quic.addImport("colibri", root);
     return graph.chapulin_quic;
 }

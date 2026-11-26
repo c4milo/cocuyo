@@ -12346,3 +12346,43 @@ mutations -- engine DR1 DR2 U2` ran the rows.
 | DR1 | v0.9.0: after `deinit`, the end of a cancelled receive arms a new receive | `zig build test-io` | `CAUGHT` |
 | DR2 | after a `reinit` that failed at its sockets, a drive arms a receive on a closed socket | `zig build test-io` | `CAUGHT` |
 | U2 | a socket's receive the loop refused is never asked for again | the engine model's short walks | `CAUGHT` |
+
+## colibri's one module and the crypto context
+
+2026-11-26. colibri moves from v0.17.2 to `e9ffbac1`, and stdx to `9dd95be`, the commit colibri
+pins. colibri exports one module, `colibri`, and its TLS takes the program's `stdx.crypto.Context`
+in place of `tls.Cpu` and a random source (its decisions 170, 172 and 175). So each module of `io/`
+imports `colibri`, `chapulin_hooks` is gone, and each context holds the consumer's `Crypto`. The
+examples detect the CPU, and the word `cpu` is gone (docs/design.md §16 decisions 38 and 48, as
+amended). The mutants of the word, of the old statement of the CPU and of the hook module no longer
+applied to the tree, so they left the corpus: CB1 to CB3, CU1 to CU21, CX1 to CX11, CX14, CX25 to
+CX30, SD4 and SM3. The rows below replace them. Each ran with its edit applied and its step run, on
+x86-64 Linux; each test that names it failed.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| CY1 | the DoT session hands colibri no instruction, whatever its context holds | `zig build test-chapulin` | `CAUGHT` |
+| CY2 | the DoQ session hands colibri no instruction, whatever its context holds | `zig build test-chapulin-quic` | `CAUGHT` |
+| CY3 | the DoH channel hands colibri no instruction, whatever its context holds | `zig build test-cocuyo_doh` | `CAUGHT` |
+| CY4 | the DoT session's hello draws from a fixed source, and not from its context's | `zig build test-chapulin` | `CAUGHT` |
+| CY5 | the DoQ session's hello draws from a fixed source, and not from its context's | `zig build test-chapulin-quic` | `CAUGHT` |
+| CD1 | the example detects no instruction, whatever the CPU has | `zig build test-examples` | `CAUGHT` |
+| CD2 | the statement's line names x86-64's carry-less multiply alone | `zig build test-examples` | `CAUGHT` |
+| CD3 | the statement's line names FEAT_DIT in place of the thread's mode | `zig build test-examples` | `CAUGHT` |
+| CD4 | the example's context holds no instruction, whatever it detected | `zig build test-examples` | `CAUGHT` |
+| CX16 | the DoH example's channel module, rooted in io/, imports stdx | `zig build graph-check` | `CAUGHT` |
+| CX18 | `core`, rooted in src/, imports stdx | `zig build graph-check` | `CAUGHT` |
+| CX34 | the library's root module imports the examples' cpu_text, which imports stdx | `zig build graph-check` | `CAUGHT` |
+| PQ3 | the DoH channel hands colibri no `require_pq` | `zig build test-cocuyo_doh` | `CAUGHT` |
+| SM4 | the consumer fixture pins colibri v0.17.2, where `build.zig.zon` pins `e9ffbac1` | `zig build consumer-check` | `CAUGHT` |
+| SM5 | the consumer check compares no pin of rotor | `zig build test-tools` | `CAUGHT` |
+| SM8 | the consumer check compares no pin of stdx | `zig build test-tools` | `CAUGHT` |
+| TC17 | the DoT session's context gives its crypto a default | `zig build test-chapulin` | `CAUGHT` |
+| TC21 | the DoQ session's context gives its crypto a default | `zig build test-chapulin-quic` | `CAUGHT` |
+| TC24 | `cocuyo_doh`'s context gives its crypto a default | `zig build test-cocuyo_doh` | `CAUGHT` |
+
+Without the test of the line's `dit`, CD3 was `NOT CAUGHT`: `zig build test-examples` passed with
+its edit applied. That test came for it, and holds the line to the thread's mode with FEAT_DIT in
+the features. A mutant of the example that sets no PSTATE.DIT changes nothing
+on x86-64, where no program sets the mode. It is left out of the corpus, since no host that runs
+the corpus there can catch it, and arm64's test of `detect` reads the bit.

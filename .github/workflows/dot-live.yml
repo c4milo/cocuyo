@@ -8,11 +8,10 @@
 # signature schemes was (docs/design.md §21 step 6), or the network failing.
 #
 # Zig is pinned as ci.yml pins it. colibri is a dependency the build fetches at the commit
-# build.zig.zon pins, checked by its hash, and its `tls` module carries chapulin's objects at the
-# commit colibri pins. Each resolver resolves in two runs, without the word `cpu` and then with it
-# (docs/design.md §16 decision 48). The run with the word reads stdx's probe, which the build
-# fetches at the commit build.zig.zon pins, colibri's own. On a runner whose sysctl does not report
-# FEAT_AES, FEAT_PMULL and FEAT_DIT as 1, each run with the word fails. No third-party action runs
+# build.zig.zon pins, checked by its hash, and its `tls` takes chapulin's objects from stdx at the
+# commit colibri pins. Each resolver resolves in one run, whose example detects the CPU's features
+# through that stdx (docs/design.md §16 decision 48, as amended on 2026-11-26). On a runner whose
+# sysctl does not report FEAT_AES, FEAT_PMULL and FEAT_DIT as 1, each run fails. No third-party action runs
 # here; `actions/checkout` and `actions/upload-artifact` are GitHub's own. Each run keeps its
 # packets to and from Quad9 for 14 days (https://github.com/c4milo/cocuyo/issues/60).
 name: dot-live

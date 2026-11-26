@@ -215,63 +215,55 @@ failover and cache stay as they are over UDP; what changes is the connection a q
 - DoQ and DoH over HTTP/3 offer QUIC version 2 beside version 1, and run on version 2 when the
   server switches to it. A ticket from such a connection resumes in version 2.
 - Each encrypted transport starts its sessions from a context you hand the engine: `use_tls` for
-  DoT, `use_quic` for DoQ, `use_doh` for DoH. A context carries a stream seeded with 32 octets
-  from your secure random source. It also carries the roots a named server's chain may end at,
-  what you state of your CPU, and the wall clock. DoQ's carries a second stream, for its
-  connection IDs, seeded with a second draw of 32 octets. The three examples each build one.
+  DoT, `use_quic` for DoQ, `use_doh` for DoH. A context carries your `stdx.crypto.Context`, which
+  holds your CPU's features and your secure random source. It also carries the roots a named
+  server's chain may end at, and the wall clock. DoQ's carries a stream for its connection IDs,
+  seeded with 32 octets from your secure random source. The three examples each build one.
 - The call is required, after `init` and before the first lookup that reaches a server of that
   transport. The engine has no context of its own. A lookup started against a DoT, DoQ or DoH
   configuration whose context was never set stops the program at an assertion, in every build.
   `has_context` says whether the engine has the context its configuration needs.
-- The engine cannot check the seed, the clock or the statement of the CPU you hand it. `reinit`
-  keeps the contexts, and `init` forgets them. A context you hand over again is built from a new
-  draw. No context type has a default, so every field of one is written where it is built.
-- What you state of your CPU is a `tls.Cpu`, which each context's `init` takes after the
-  anchors. It holds what your probe of the CPU found, and the timing mode of the thread that
-  drives the engine. colibri reads it to choose the suites of each hello (docs/design.md §16
-  decision 48).
-- Fill `probe` once, at start, from `platform.probe()` of stdx, at the commit colibri pins. Set
-  `timing` to `.data_independent` only for a thread that runs in that mode. On arm64 that thread
-  has set PSTATE.DIT. On x86-64 the operating system has set DOITM. Where the probe also found
-  the AES instructions, each hello then offers TLS_AES_256_GCM_SHA384 and TLS_AES_128_GCM_SHA256,
-  then TLS_CHACHA20_POLY1305_SHA256. Where it did not, each hello offers
-  TLS_CHACHA20_POLY1305_SHA256 alone.
-- If you cannot state the mode, set `timing` to `.not_stated`. Put your probe beside it, or
-  `.not_known` for each of its answers. Each hello then offers TLS_CHACHA20_POLY1305_SHA256
-  alone, and a server that holds only AES-GCM refuses it.
-- The three examples state nothing by default. The word `cpu`, first on the command line, turns
-  the statement on (docs/design.md §16 decision 48):
+- The engine cannot check the clock, the features or the random source you hand it. `reinit`
+  keeps the contexts, and `init` forgets them. No context type has a default, so every field of
+  one is written where it is built.
+- Make the `stdx.crypto.Context` once, at start, with `stdx.crypto.init(features, random)`, from
+  the stdx that colibri pins (colibri decision 175). `features` is `platform.CpuFeatures.detect()`.
+  `random` is a `std.Random` over your secure random source, as `examples/cpu_text.zig` makes one
+  over `io.randomSecure`. chapulin draws each handshake's random and its key shares from it.
+- On arm64, set PSTATE.DIT on the thread that drives the engine, with
+  `platform.set_data_independent_timing(features, true)`. stdx reads the bit at each session's
+  start. On x86-64 stdx states the timing of each core from detection. Where the CPU has the AES
+  instructions and a carry-less multiply, and on arm64 the bit is set, each hello offers
+  TLS_AES_256_GCM_SHA384 and TLS_AES_128_GCM_SHA256, then TLS_CHACHA20_POLY1305_SHA256. Elsewhere
+  each hello offers TLS_CHACHA20_POLY1305_SHA256 alone, and a server that holds only AES-GCM
+  refuses it.
+- The three examples detect the CPU this way (docs/design.md §16 decision 48, as amended on
+  2026-11-26). Each says what it detected before its first lookup, and after each turn the suite
+  its handshake chose:
 
   ```bash
-  zig build example-dot-rotor -- cpu dns.google 8.8.8.8 dns.google gts-root-r1.der gts-root-r4.der
+  zig build example-dot-rotor -- dns.google 8.8.8.8 dns.google gts-root-r1.der gts-root-r4.der
   ```
 
-  With the word, the example probes the CPU once, through stdx's `platform.probe()`. On arm64,
-  where the probe found FEAT_DIT, it sets PSTATE.DIT, reads the bit back, and states
-  `.data_independent` with its probe. Elsewhere it states nothing, as without the word: on x86-64
-  no program can read DOITM. Each example says what it states before its first lookup, and after
-  each turn the suite its handshake chose.
-- The word is off by default because an example is a model that you copy. A program states
-  `.data_independent` only for a thread that it put in that mode itself, and `.not_stated` is
-  true of each program. stdx is a dependency of these examples alone. Only cocuyo's own build
-  requests it, so a package that depends on cocuyo never fetches it. `zig build graph-check`
-  fails when a module of the library reaches stdx, or when a module of the engine reaches it
-  other than through colibri.
+- A program that speaks DoT, DoQ or DoH depends on stdx too, at the commit colibri pins, and asks
+  it as colibri does, with `.crypto = true`, so the image holds one stdx. Only cocuyo's own build
+  requests stdx for the examples, so a package that depends on cocuyo never fetches it through
+  cocuyo. `zig build graph-check` fails when a module of the library reaches stdx, or when a
+  module of the engine reaches it other than through colibri.
 - cocuyo's library depends on none of them. The engine speaks TLS through a session interface,
   which this repository fills with chapulin's session in colibri's `tls`; QUIC through
-  `cocuyo_quic`, whose `quic` import a consumer that speaks DoQ binds to colibri's; and HTTPS
-  through `cocuyo_doh`, whose `client` and `tls` imports a consumer that speaks DoH binds to
-  colibri's.
+  `cocuyo_quic`; and HTTPS through `cocuyo_doh`. A consumer that speaks DoQ or DoH binds colibri's
+  one module, `colibri`, into the `colibri` import of each.
 - The DoT session to name is `Session` of the module `chapulin`, in the `tls` option of
-  `cocuyo_rotor`'s `Resolver`, as `examples/dot_rotor.zig` does. Your build binds colibri's `tls`
-  and `tls_provider` into `chapulin`. The session's `io` is `cocuyo_rotor`, into which your build
-  binds its rotor. [`test/consumer/build.zig`](test/consumer/build.zig) has the lines, and the
-  gate builds that package.
+  `cocuyo_rotor`'s `Resolver`, as `examples/dot_rotor.zig` does. Your build binds colibri's one
+  module into `chapulin`. The session's `io` is `cocuyo_rotor`, into which your build binds its
+  rotor. [`test/consumer/build.zig`](test/consumer/build.zig) has the lines, and the gate builds
+  that package.
 - `cocuyo_quic` takes its TLS as a type, in `Options.Session`, and the option has no default: a
   consumer that names no session does not compile. A session names the QUIC version it started in,
   `original_version`, and the connection starts in it. The session to name is the one over chapulin,
   `Session` of the module `chapulin_quic`, as `examples/doq_rotor.zig` does. Your build binds
-  colibri's `quic` and `tls` into `chapulin_quic`, and colibri's `quic` into `cocuyo_quic`.
+  colibri's one module into `chapulin_quic` and into `cocuyo_quic`.
   [`test/consumer/build.zig`](test/consumer/build.zig) has the lines, and the gate builds that
   package.
 - `cocuyo_quic` also exports `plain`, `Plain` and `server`, for tests: a session, the same
@@ -287,11 +279,10 @@ HTTPS records as well as A. Every transport, plain DNS over UDP and TCP among th
 day against AdGuard's dnsproxy on the loopback, an implementation written elsewhere, for addresses
 and for records of those four types and CNAME.
 
-Each of these checks resolves through each encrypted server in two runs: first without the word
-`cpu`, then with it. Without the word each handshake must run ChaCha20-Poly1305. With it each must
-run AES-GCM on an arm64 host whose system reports the AES instructions, PMULL and FEAT_DIT.
-Elsewhere each must run ChaCha20-Poly1305. The one exception is an arm64 Mac whose system hides
-one of the three: there each run with the word fails.
+Each of these checks resolves through each encrypted server in one run. Each handshake must run
+AES-GCM on a host whose system reports the AES instructions and a carry-less multiply, on arm64
+with FEAT_DIT too, and ChaCha20-Poly1305 elsewhere. The one exception is an arm64 Mac whose system
+hides one of the three: there each run fails.
 
 ## Quick start
 
@@ -572,9 +563,9 @@ that depends on cocuyo, and every unit test. Other steps:
 | `zig build example-udp-rotor -- example.com` | Resolve a name over rotor's event loop |
 | `zig build example-threads-rotor` | Two engines on two threads, each on its own loop |
 | `zig build example-cleartext-rotor -- [dnssec <anchors>] <name> <server>[:<port>] [udp \| tcp]` | Resolve over plain DNS through the engine |
-| `zig build example-dot-rotor -- [cpu] ...` | Resolve over DNS over TLS |
-| `zig build example-doq-rotor -- [cpu] ...` | Resolve over DNS over QUIC |
-| `zig build example-doh-rotor -- [cpu] ...` | Resolve over DNS over HTTPS |
+| `zig build example-dot-rotor -- ...` | Resolve over DNS over TLS |
+| `zig build example-doq-rotor -- ...` | Resolve over DNS over QUIC |
+| `zig build example-doh-rotor -- ...` | Resolve over DNS over HTTPS |
 | `... [dnssec <anchors>] ...` | Validate every lookup of an engine example from a file of DS or DNSKEY records |
 | `tools/dot_live/run.sh`, `tools/doq_live/run.sh`, `tools/doh_live/run.sh` | The live checks against public resolvers |
 | `tools/interop/run.sh` | Every transport against dnsproxy on the loopback |

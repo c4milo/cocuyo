@@ -5,8 +5,9 @@ const std = @import("std");
 const cocuyo = @import("cocuyo");
 // The engine's constants, through the engine's module: a file belongs to one module.
 const constants = @import("io").constants;
-const tls = @import("tls");
+const tls = @import("colibri").tls;
 const Session = @import("io_chapulin.zig").Session;
+const support = @import("io_crypto_test_support.zig");
 
 const testing = std.testing;
 
@@ -22,29 +23,17 @@ const test_seconds: u64 = 1_700_000_000;
 /// The octet a test's stream is seeded with when the test does not read what the stream gives.
 const test_seed_octet: u8 = 7;
 
-/// What a test states of the CPU when it names nothing: no answer of the probe, and no timing
-/// mode. A consumer that cannot state its thread's mode passes it (docs/design.md §16 decision 48).
-const cpu_not_stated: Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated };
-/// A probe that found the AES instructions and FEAT_DIT, under a timing mode the test states and
-/// nothing checks. A test that names it reads the hello alone, which runs no AES instruction.
-const cpu_with_aes: Session.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent };
-/// The same probe, with no timing mode stated.
-const cpu_aes_not_stated: Session.Cpu = .{ .probe = cpu_with_aes.probe, .timing = .not_stated };
-/// A probe that found FEAT_DIT and no AES instructions, under the timing mode of `cpu_with_aes`.
-const cpu_without_aes: Session.Cpu = .{ .probe = .{ .aes_clmul = .no, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent };
-/// A probe that found FEAT_DIT and gave no answer for the AES instructions, under the same mode.
-const cpu_aes_not_known: Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent };
-
-/// A context for a test: the stream seeded with `seed_octet` repeated, so each run draws what the
-/// last drew, and the wall clock at `test_seconds`. It states nothing of the CPU. Never for a
-/// network, whose seed comes from a CSPRNG.
-fn test_context(anchors: []const tls.Anchor, seed_octet: u8) Session.Context {
-    return test_context_with(cpu_not_stated, anchors, seed_octet);
+/// A context for a test: one over `source`, which a seed repeated seeds, so each run draws what the
+/// last drew, and the wall clock at `test_seconds`. It states no instruction. Never for a network,
+/// whose source is a CSPRNG's.
+fn test_context(anchors: []const tls.Anchor, source: *std.Random.ChaCha) Session.Context {
+    return test_context_with(.nothing, anchors, source).?;
 }
 
-/// As `test_context`, with the statement of the CPU that the test names.
-fn test_context_with(cpu: Session.Cpu, anchors: []const tls.Anchor, seed_octet: u8) Session.Context {
-    return .init(anchors, cpu, @splat(seed_octet), .{ .unix_seconds = test_seconds, .monotonic_ns = 0 });
+/// As `test_context`, with the CPU that `case` names. Null where this host cannot state it.
+fn test_context_with(case: support.Case, anchors: []const tls.Anchor, source: *std.Random.ChaCha) ?Session.Context {
+    const crypto = support.crypto(case, source) orelse return null;
+    return .init(anchors, crypto, .{ .unix_seconds = test_seconds, .monotonic_ns = 0 });
 }
 
 /// The octets of the pin the tests' servers are known by, which no key hashes to.
@@ -78,7 +67,8 @@ test "the context carries no default, so each of its fields is named where one i
 }
 
 test "a session starts and stages a hello, a TLS handshake record" {
-    var context = test_context(&.{}, test_seed_octet);
+    var source = support.stream(test_seed_octet);
+    var context = test_context(&.{}, &source);
     const pins = [_]cocuyo.Pin{@splat(pin_octet)};
     const session = try started(&.{ .pins = &pins }, &context);
     defer finish(session);
@@ -91,18 +81,21 @@ test "a session starts and stages a hello, a TLS handshake record" {
     try testing.expectEqual(made, constants.tls_record_header_bytes + body);
 }
 
-/// The hello a session over `seed` and `cpu` stages first.
+/// The hello a session over `seed` and the CPU of a case stages first.
 const Hello = struct {
     bytes: [Session.out_bytes_max]u8 = undefined,
     len: usize = 0,
 
-    fn of(seed: u8, cpu: Session.Cpu) !Hello {
-        return of_server(seed, cpu, false);
+    /// The hello of `case`, which a test this host cannot state skips.
+    fn of(seed: u8, case: support.Case) !Hello {
+        return (try of_server(seed, case, false)) orelse error.SkipZigTest;
     }
 
     /// The hello to a server known by a pin, which requires the hybrid when `required` says so.
-    fn of_server(seed: u8, cpu: Session.Cpu, required: bool) !Hello {
-        var context = test_context_with(cpu, &.{}, seed);
+    /// Null where this host cannot state `case`.
+    fn of_server(seed: u8, case: support.Case, required: bool) !?Hello {
+        var source = support.stream(seed);
+        var context = test_context_with(case, &.{}, &source) orelse return null;
         const pins = [_]cocuyo.Pin{@splat(pin_octet)};
         const session = try started(&.{ .pins = &pins, .require_post_quantum = required }, &context);
         defer finish(session);
@@ -117,9 +110,9 @@ const Hello = struct {
 };
 
 test "the hello is drawn from the context's stream: the same seed makes the same hello" {
-    const first = try Hello.of(1, cpu_not_stated);
-    const again = try Hello.of(1, cpu_not_stated);
-    const other = try Hello.of(2, cpu_not_stated);
+    const first = try Hello.of(1, .nothing);
+    const again = try Hello.of(1, .nothing);
+    const other = try Hello.of(2, .nothing);
     // The random and the key shares are the stream's (non-negotiable 4).
     try testing.expectEqualSlices(u8, first.slice(), again.slice());
     try testing.expect(!std.mem.eql(u8, first.slice(), other.slice()));
@@ -135,11 +128,11 @@ const random_bytes: usize = 32;
 const aes_128_gcm_sha256: u16 = 0x1301;
 const aes_256_gcm_sha384: u16 = 0x1302;
 const chacha20_poly1305_sha256: u16 = 0x1303;
-/// The suites of a hello whose context states the AES instructions and a data-independent timing.
+/// The suites of a hello whose context holds the AES instructions, whose timing stdx states.
 /// colibri hands chapulin no order of its own. So the order is that of chapulin's host object,
 /// which colibri builds for arm64 and x86-64 (chapulin's `suite.h`).
 const suites_with_aes = [_]u16{ aes_256_gcm_sha384, aes_128_gcm_sha256, chacha20_poly1305_sha256 };
-/// The suites of a hello whose context states no timing mode, or no AES instructions found.
+/// The suites of a hello whose context holds no AES instructions, or no timing stdx states.
 const suites_without_aes = [_]u16{chacha20_poly1305_sha256};
 
 /// Requires that `codes`, a ClientHello's list of two-octet code points, its cipher_suites or its
@@ -209,41 +202,42 @@ fn hello_suites(hello: *const Hello) []const u8 {
 test "a server that requires the post-quantum hybrid gets a hello that offers X25519MLKEM768 alone" {
     // docs/design.md §21, TLS rule 10: the session hands colibri the server's value, and chapulin
     // offers the hybrid alone. Without it the hello offers the hybrid and two classic groups.
-    const offered = try Hello.of_server(test_seed_octet, cpu_not_stated, false);
+    const offered = (try Hello.of_server(test_seed_octet, .nothing, false)).?;
     try expect_codes(&groups_offered, groups_of(hello_suites_message(&offered)));
-    const required = try Hello.of_server(test_seed_octet, cpu_not_stated, true);
+    const required = (try Hello.of_server(test_seed_octet, .nothing, true)).?;
     try expect_codes(&groups_required, groups_of(hello_suites_message(&required)));
 }
 
-test "a context that states the AES instructions and a data-independent timing offers AES-GCM first" {
-    // docs/design.md §16 decision 48: the session hands colibri what its context states. RFC 9846
+test "a context whose AES instructions stdx states in constant time offers AES-GCM first" {
+    // docs/design.md §16 decision 48: the session hands colibri the consumer's context. RFC 9846
     // §9.1 makes TLS_AES_128_GCM_SHA256 the suite to implement, so a server may hold it alone.
-    const hello = try Hello.of(test_seed_octet, cpu_with_aes);
+    const hello = try Hello.of(test_seed_octet, .with_aes);
     try expect_codes(&suites_with_aes, hello_suites(&hello));
 }
 
-test "a context that states no timing mode offers TLS_CHACHA20_POLY1305_SHA256 alone, whatever its probe" {
-    // docs/design.md §16 decision 48: the value a consumer passes when it cannot state its
-    // thread's mode. The AES instructions alone are no ground for colibri to run them.
-    const nothing = try Hello.of(test_seed_octet, cpu_not_stated);
+test "a context of no instruction, or of the AES instructions with no timing, offers TLS_CHACHA20_POLY1305_SHA256 alone" {
+    // docs/design.md §16 decision 48: a CPU of neither instruction. The AES
+    // instructions alone, on an arm64 core whose timing stdx cannot state, are no ground to run
+    // them. Off arm64 stdx states the timing of each core, so that case is arm64's alone.
+    const nothing = try Hello.of(test_seed_octet, .nothing);
     try expect_codes(&suites_without_aes, hello_suites(&nothing));
-    const probe_alone = try Hello.of(test_seed_octet, cpu_aes_not_stated);
-    try expect_codes(&suites_without_aes, hello_suites(&probe_alone));
+    if (try Hello.of_server(test_seed_octet, .aes_not_stated, false)) |instructions_alone| {
+        try expect_codes(&suites_without_aes, hello_suites(&instructions_alone));
+    }
 }
 
-test "a context that states a data-independent timing and no AES instructions offers TLS_CHACHA20_POLY1305_SHA256 alone" {
-    // docs/design.md §16 decision 48: colibri runs the AES instructions only where the probe
-    // answered `yes`. A probe's `no` or `not_known` gives no ground to run them.
-    const without = try Hello.of(test_seed_octet, cpu_without_aes);
+test "a context of a carry-less multiply and no AES instructions offers TLS_CHACHA20_POLY1305_SHA256 alone" {
+    // docs/design.md §16 decision 48: colibri runs the AES instructions only where the features
+    // hold them.
+    const without = try Hello.of(test_seed_octet, .without_aes);
     try expect_codes(&suites_without_aes, hello_suites(&without));
-    const not_known = try Hello.of(test_seed_octet, cpu_aes_not_known);
-    try expect_codes(&suites_without_aes, hello_suites(&not_known));
 }
 
 test "a handshake chapulin refuses hands over its fatal alert, though the session is wiped" {
     // A first record from the server that is no ServerHello: chapulin fails the handshake and
     // colibri writes the alert it chose, which the engine sends before it closes (RFC 9846 §6.2).
-    var context = test_context(&.{}, test_seed_octet);
+    var source = support.stream(test_seed_octet);
+    var context = test_context(&.{}, &source);
     const pins = [_]cocuyo.Pin{@splat(pin_octet)};
     const session = try started(&.{ .pins = &pins }, &context);
     defer finish(session);
@@ -263,7 +257,8 @@ test "a handshake chapulin refuses hands over its fatal alert, though the sessio
 test "a server known by pins alone gets no anchors, though the context carries them for named servers" {
     // The anchors are for the servers that have names; one known by its key alone gets none,
     // which chapulin would refuse with no name to check a chain against.
-    const context = test_context(&anchors_test, test_seed_octet);
+    var source = support.stream(test_seed_octet);
+    const context = test_context(&anchors_test, &source);
     const pins = [_]cocuyo.Pin{@splat(pin_octet)};
     var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
     const trust = Session.trust(&.{ .pins = &pins }, &context, &hostname);
@@ -273,7 +268,8 @@ test "a server known by pins alone gets no anchors, though the context carries t
 }
 
 test "a named server is checked against the anchors and its name, on the context's clock" {
-    const context = test_context(&anchors_test, test_seed_octet);
+    var source = support.stream(test_seed_octet);
+    const context = test_context(&anchors_test, &source);
     var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
     const trust = Session.trust(&.{ .name = try cocuyo.Name.parse("dns.example.") }, &context, &hostname);
     try testing.expect(trust == .web_pki);
@@ -284,7 +280,8 @@ test "a named server is checked against the anchors and its name, on the context
 }
 
 test "a named server with no anchors to check is judged by its pins, and its name still sent" {
-    const context = test_context(&.{}, test_seed_octet);
+    var source = support.stream(test_seed_octet);
+    const context = test_context(&.{}, &source);
     const pins = [_]cocuyo.Pin{@splat(pin_octet)};
     var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
     const trust = Session.trust(&.{ .name = try cocuyo.Name.parse("dns.example."), .pins = &pins }, &context, &hostname);
@@ -294,7 +291,8 @@ test "a named server with no anchors to check is judged by its pins, and its nam
 }
 
 test "a session with neither pins nor anchors for its name is refused before a byte" {
-    var context = test_context(&.{}, test_seed_octet);
+    var source = support.stream(test_seed_octet);
+    var context = test_context(&.{}, &source);
     const server: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
     const session = try testing.allocator.create(Session);
     defer testing.allocator.destroy(session);
@@ -308,7 +306,8 @@ test "the ticket a session would resume with is zeroed when its start fails" {
     // The copy holds the resumption secret (RFC 9846 §4.7.1), which nothing may keep past the
     // session it was for. This ticket's binding to the server matches nothing, so chapulin refuses
     // it, and the failed start wipes the session.
-    var context = test_context(&.{}, test_seed_octet);
+    var source = support.stream(test_seed_octet);
+    var context = test_context(&.{}, &source);
     const pins = [_]cocuyo.Pin{@splat(pin_octet)};
     var ticket = std.mem.zeroes(Session.Ticket);
     ticket.identity_len = 1;
@@ -327,7 +326,8 @@ test "the ticket a session would resume with is zeroed when its start fails" {
 test "chapulin starts a session for a server of four pins, the most a configuration names, and refuses five" {
     // `spki_pins_max` is chapulin's own bound as well (docs/design.md §21). A server of four pins
     // starts. Five pins, which no valid configuration names, are refused at the start.
-    var context = test_context(&.{}, test_seed_octet);
+    var source = support.stream(test_seed_octet);
+    var context = test_context(&.{}, &source);
     const pins: [cocuyo.limits.spki_pins_max + 1]cocuyo.Pin = @splat(@splat(pin_octet));
     const most = try started(&.{ .pins = pins[0..cocuyo.limits.spki_pins_max] }, &context);
     finish(most);

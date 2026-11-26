@@ -17,7 +17,6 @@ pub const constants = cocuyo_doh.constants;
 pub const limits = cocuyo_doh.limits;
 const doh_constants = @import("doh").constants;
 const doh_limits = @import("doh").limits;
-const tls = @import("tls");
 
 /// Two answer buffers: a test's second request fits beside its first, and a third waits.
 const test_answers: usize = 2;
@@ -39,7 +38,7 @@ pub const qr_bit: u8 = 0x80;
 
 /// The server's address, and its template as the engine splits it, on a port of its own, so a link
 /// that went to HTTPS's 443 anyway shows.
-const port: u16 = 8443;
+pub const port: u16 = 8443;
 pub const endpoint: cocuyo.Endpoint = .{ .address = cocuyo.Address.parse("192.0.2.1").?, .port = port };
 pub const template = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/dns-query{?dns}" };
 /// A query of a header alone, ID 0, as DoH asks (RFC 8484 §4.1), recursion desired: the server
@@ -59,9 +58,11 @@ fn echo(context: *anyopaque, asked: []const u8, out: []u8) ?usize {
 /// The type, colibri's server, and what the type said, on the heap: a channel is over a megabyte.
 pub const Pair = struct {
     doh: Doh = .{},
-    /// A test's context, built where the pair is, at the pair's first instant: no pair holds one
-    /// that nobody named.
-    context: Doh.Context = identity.test_context(seed_octet, round_ns),
+    /// The CPU of the pair's context, the stream it draws from, and the context, which `open`
+    /// builds at the pair's first instant: no pair holds one that nobody named.
+    case: identity.support.Case = .nothing,
+    stream: std.Random.ChaCha = identity.support.stream(seed_octet),
+    context: Doh.Context = undefined,
     server: server_module.Server = .{},
     wire: [Doh.output_bytes_max]u8 = undefined,
     said: [said_max]Event = undefined,
@@ -80,14 +81,15 @@ pub const Pair = struct {
     require_post_quantum: bool = false,
 
     pub fn create(script: server_module.Script) !*Pair {
-        return create_with(script, identity.cpu_not_stated);
+        return (try create_with(script, .nothing)).?;
     }
 
-    /// As `create`, with a context that states `cpu` of the CPU (docs/design.md §16 decision 48).
-    pub fn create_with(script: server_module.Script, cpu: tls.Cpu) !*Pair {
+    /// As `create`, with the CPU `case` names, or null where this host cannot state it (§16 decision 48).
+    pub fn create_with(script: server_module.Script, case: identity.support.Case) !?*Pair {
+        if (!identity.support.states(case)) return null;
         const pair = try testing.allocator.create(Pair);
         errdefer testing.allocator.destroy(pair);
-        pair.* = .{ .context = identity.test_context_with(cpu, seed_octet, round_ns) };
+        pair.* = .{ .case = case };
         try pair.open(script);
         return pair;
     }
@@ -99,6 +101,7 @@ pub const Pair = struct {
 
     /// A new channel, and a new connection of the server's for it.
     pub fn open(pair: *Pair, script: server_module.Script) !void {
+        pair.context = identity.test_context_with(pair.case, &pair.stream, round_ns).?;
         try pair.server.init(script, identity.unix_seconds, pair.now_ns);
         const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(identity.server_name), .require_post_quantum = pair.require_post_quantum };
         try pair.doh.start(.{
@@ -384,7 +387,7 @@ test "a ticket the server gives is taken, and the next channel's TCP link resume
     try pair.open(.{ .tickets = true });
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     try testing.expect((try pair.run(.finished)).finished.result == .answer);
-    try testing.expect(pair.server.endpoint.tcp[0].tls_server.resumed());
+    try testing.expect(pair.server.endpoint.tcp[0].tls_session.?.server.resumed());
     const connected = pair.doh.connected().?;
     try testing.expect(connected.offered and connected.resumed);
     // The copy the link resumed with is zeroed once its connection has ended.
@@ -423,78 +426,4 @@ test "stream octets past what the type keeps end the TCP link, which the channel
     // connection.
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(Doh.Result{ .failed = .closed }, finished.result);
-}
-
-test "a template whose GET would not fit is refused when the channel starts" {
-    const pair = try testing.allocator.create(Pair);
-    defer testing.allocator.destroy(pair);
-    pair.* = .{};
-    const long_path = "/" ++ "p" ** 1400 ++ "{?dns}";
-    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(identity.server_name) };
-    const long = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = long_path };
-    try testing.expectError(error.Failed, pair.doh.start(.{
-        .server = 0,
-        .endpoint = pair.endpoint,
-        .tls = &named,
-        .https = long,
-        .alternative = null,
-        .context = &pair.context,
-        .now_ns = pair.now_ns,
-    }));
-}
-
-test "a template whose GET path at its longest fills the path buffer starts, and its longest GET is answered; one octet more is refused" {
-    // At `start` the template is expanded with a `dns` value `dns_variable_bytes_max` long, and a
-    // path past `doh_request_bytes_max` is refused (docs/design.md §24). Here the path at its
-    // longest is a slash, `?x=`, the filler, `&dns=` and the value: 1536 octets. The authority is
-    // the longest, a name of 253 octets and a port, and the query is the longest a `dns` value of
-    // 512 octets carries, 384 octets in base64url (RFC 4648 §5).
-    const query_part = "?x=";
-    const value_part = "&dns=";
-    const filler = doh_limits.doh_request_bytes_max - 1 - query_part.len - value_part.len - wire.limits.dns_variable_bytes_max;
-    const longest = query_part ++ "p" ** filler ++ "{&dns}";
-    const host = ("h" ** 63 ++ ".") ** 3 ++ "h" ** 61;
-    const pair = try testing.allocator.create(Pair);
-    defer testing.allocator.destroy(pair);
-    pair.* = .{ .endpoint = endpoint };
-    try pair.server.init(.{}, identity.unix_seconds, pair.now_ns);
-    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(identity.server_name) };
-    const fits_slot = .{ .authority = host ++ ":8443", .host = host, .port = port, .path = longest };
-    try pair.doh.start(.{ .server = 0, .endpoint = pair.endpoint, .tls = &named, .https = fits_slot, .alternative = null, .context = &pair.context, .now_ns = pair.now_ns });
-    var longest_query: [wire.limits.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
-    @memcpy(longest_query[0..query.len], &query);
-    try testing.expect(pair.doh.request(0, &longest_query, pair.now_ns));
-    const result = (try pair.run(.finished)).finished.result;
-    if (result != .answer) return error.TestUnexpectedResult;
-    const answer = result.answer;
-    try testing.expectEqual(longest_query.len, answer.message.len);
-    pair.doh.wipe();
-    const over = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = query_part ++ "p" ** (filler + 1) ++ "{&dns}" };
-    try testing.expectError(error.Failed, pair.doh.start(.{ .server = 0, .endpoint = pair.endpoint, .tls = &named, .https = over, .alternative = null, .context = &pair.context, .now_ns = pair.now_ns }));
-}
-
-test "a template whose path starts with a slash and fills the path buffer starts, and its longest GET is answered; one octet more is refused" {
-    // The slash is the template's own, so the expansion has the whole buffer: a slash, the
-    // filler, `?dns=` and a value of 512 octets make 1536 (docs/design.md §24, §17 question 42).
-    const value_part = "?dns=";
-    const filler = doh_limits.doh_request_bytes_max - 1 - value_part.len - wire.limits.dns_variable_bytes_max;
-    const pair = try testing.allocator.create(Pair);
-    defer testing.allocator.destroy(pair);
-    pair.* = .{ .endpoint = endpoint };
-    try pair.server.init(.{}, identity.unix_seconds, pair.now_ns);
-    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(identity.server_name) };
-    const fills = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/" ++ "p" ** filler ++ "{?dns}" };
-    try pair.doh.start(.{ .server = 0, .endpoint = pair.endpoint, .tls = &named, .https = fills, .alternative = null, .context = &pair.context, .now_ns = pair.now_ns });
-    // The longest query a `dns` value of 512 octets carries goes out on that path, and colibri's
-    // server answers it.
-    var longest_query: [wire.limits.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
-    @memcpy(longest_query[0..query.len], &query);
-    try testing.expect(pair.doh.request(0, &longest_query, pair.now_ns));
-    const result = (try pair.run(.finished)).finished.result;
-    if (result != .answer) return error.TestUnexpectedResult;
-    const answer = result.answer;
-    try testing.expectEqual(longest_query.len, answer.message.len);
-    pair.doh.wipe();
-    const over = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/" ++ "p" ** (filler + 1) ++ "{?dns}" };
-    try testing.expectError(error.Failed, pair.doh.start(.{ .server = 0, .endpoint = pair.endpoint, .tls = &named, .https = over, .alternative = null, .context = &pair.context, .now_ns = pair.now_ns }));
 }

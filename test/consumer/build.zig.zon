@@ -11,13 +11,20 @@
             .url = "git+https://github.com/c4milo/rotor?ref=v0.11.0#f2890f5283fd5577243f6472648a05dda7a7f4e6",
             .hash = "rotor-0.11.0-YZkxRH0dJwBgz9oa8yO6YOTVtpFTnV6Iiz7C0OwjTffl",
         },
-        // The consumer's own colibri, at the pin of cocuyo's `build.zig.zon`, bound into
-        // `cocuyo_quic`, `chapulin_quic` and `chapulin` by build.zig. It is not lazy, as a
-        // consumer that speaks DoQ or DoT needs it, so the package fetches colibri, and chapulin
-        // and stdx under it.
+        // The consumer's own colibri, at the pin of cocuyo's `build.zig.zon`, whose one module
+        // build.zig binds into `cocuyo_quic`, `chapulin_quic` and `chapulin`. It is not lazy, as a
+        // consumer that speaks DoQ or DoT needs it, so the package fetches colibri, and stdx and
+        // chapulin under it.
         .colibri = .{
-            .url = "git+https://github.com/c4milo/colibri?ref=v0.17.2#c1b59ce0cbdb5b0acecf8538f256c269d8dcf1a4",
-            .hash = "colibri-0.17.2-Wo-Avn1vsgRPhQacsHtGAHD178K6cTcRXasxu7r0S8bE",
+            .url = "git+https://github.com/c4milo/colibri#e9ffbac1f0097e7d277f9044d1e329e861dca023",
+            .hash = "colibri-0.21.0-Wo-AvjRptQSHRiFVymlmTpcVXuHKYqIc_V--wXfpWAyf",
+        },
+        // The consumer's own stdx, at the commit colibri pins, whose `crypto.init` makes the
+        // context colibri's TLS takes (colibri decision 175). build.zig asks it as colibri does,
+        // so the image holds one stdx and one chapulin.
+        .stdx = .{
+            .url = "git+https://github.com/c4milo/stdx#9dd95be8e994a7a600aa1df6635ae0dc00b0bf5a",
+            .hash = "stdx-0.3.0-BD60thJKXQDGoqyQKYSMUIPbMfsfR5A7sTlN-srIjq2d",
         },
     },
     .paths = .{

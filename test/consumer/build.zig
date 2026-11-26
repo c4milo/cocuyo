@@ -57,14 +57,15 @@ pub fn build(b: *std.Build) void {
     embedded.root_module.addImport("cocuyo_rotor", resolver);
     b.installArtifact(embedded);
 
-    // The consumer's own colibri, bound where a consumer that speaks DoQ binds it. Its `quic` goes
-    // into cocuyo's connection, and its `quic` and `tls` into the session the connection names.
-    const colibri = b.dependency("colibri", .{ .target = target });
+    // The consumer's own colibri, bound where a consumer that speaks DoQ binds it: its one module
+    // into cocuyo's connection and into the session the connection names (colibri decision 170).
+    // Its stdx, asked as colibri asks it, makes the context of the sessions (decision 175).
+    const colibri = b.dependency("colibri", .{ .target = target }).module("colibri");
+    const stdx = b.dependency("stdx", .{ .target = target, .release = false, .crypto = true }).module("stdx");
     const quic = cocuyo.module("cocuyo_quic");
-    quic.addImport("quic", colibri.module("quic"));
+    quic.addImport("colibri", colibri);
     const session = cocuyo.module("chapulin_quic");
-    session.addImport("quic", colibri.module("quic"));
-    session.addImport("tls", colibri.module("tls"));
+    session.addImport("colibri", colibri);
     const doq = b.addExecutable(.{
         .name = "doq",
         .root_module = b.createModule(.{
@@ -78,14 +79,14 @@ pub fn build(b: *std.Build) void {
     doq.root_module.addImport("cocuyo_rotor", resolver);
     doq.root_module.addImport("cocuyo_quic", quic);
     doq.root_module.addImport("chapulin_quic", session);
+    doq.root_module.addImport("stdx", stdx);
     b.installArtifact(doq);
 
-    // The same colibri, bound where a consumer that speaks DoT binds it: its `tls` and
-    // `tls_provider` into the DoT session. The session's `io` is `cocuyo_rotor`, into which this
-    // package bound its rotor above.
+    // The same colibri, bound where a consumer that speaks DoT binds it: its one module into the
+    // DoT session. The session's `io` is `cocuyo_rotor`, into which this package bound its rotor
+    // above.
     const tls_session = cocuyo.module("chapulin");
-    tls_session.addImport("tls", colibri.module("tls"));
-    tls_session.addImport("tls_provider", colibri.module("tls_provider"));
+    tls_session.addImport("colibri", colibri);
     const dot = b.addExecutable(.{
         .name = "dot",
         .root_module = b.createModule(.{
@@ -98,5 +99,6 @@ pub fn build(b: *std.Build) void {
     dot.root_module.addImport("cocuyo", cocuyo.module("cocuyo"));
     dot.root_module.addImport("cocuyo_rotor", resolver);
     dot.root_module.addImport("chapulin", tls_session);
+    dot.root_module.addImport("stdx", stdx);
     b.installArtifact(dot);
 }

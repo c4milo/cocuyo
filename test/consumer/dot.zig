@@ -1,8 +1,8 @@
 //! What a consumer that speaks DoT writes (docs/design.md §21, §16 decision 38 as amended for §17
 //! question 64). Its resolver of `cocuyo_rotor` names the session over chapulin, `Session` of the
 //! module `chapulin`, and runs on a loop of the consumer's own. Its build binds its rotor into
-//! `cocuyo_rotor`, which is the session's `io`, and colibri's `tls` and `tls_provider` into
-//! `chapulin`.
+//! `cocuyo_rotor`, which is the session's `io`, and colibri's one module into `chapulin`. The
+//! program makes the sessions' context with its own stdx.
 //!
 //! `zig build consumer-check` builds this and does not run it. It shows that a consumer can name
 //! the session that the package registers, and that the image links. The session's own tests and
@@ -12,6 +12,7 @@ const rotor = @import("rotor");
 const cocuyo = @import("cocuyo");
 const dns = @import("cocuyo_rotor");
 const chapulin = @import("chapulin");
+const stdx = @import("stdx");
 
 /// The lookups the resolver holds at once: one, small on purpose, as the table is.
 const lookups = 1;
@@ -35,9 +36,20 @@ const events_max = 16;
 const now_ns = 1;
 /// The wall clock at `now_ns`, which a program for a network reads from its clock.
 const unix_seconds = 1;
-/// What the program states of its CPU: nothing, which each program can state truthfully
-/// (docs/design.md §16 decision 48).
-const cpu: chapulin.Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated };
+/// The source of the sessions' keys: `io.randomSecure`, which halts the program when it fails, so
+/// no session runs on octets the system did not give.
+const SecureRandom = struct {
+    io: std.Io,
+
+    fn fill(pointer: *anyopaque, octets: []u8) void {
+        const self: *SecureRandom = @ptrCast(@alignCast(pointer));
+        self.io.randomSecure(octets) catch |err| std.debug.panic("no entropy: {t}", .{err});
+    }
+
+    fn random(self: *SecureRandom) std.Random {
+        return .{ .ptr = self, .fillFn = fill };
+    }
+};
 
 var loop_memory: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment) = undefined;
 var resolver: Resolver = undefined;
@@ -82,12 +94,14 @@ pub fn main(init: std.process.Init) !void {
     // Every seed comes from the CSPRNG, each drawn for one use alone.
     var engine_seed: [@sizeOf(u64)]u8 = undefined;
     try init.io.randomSecure(&engine_seed);
-    var session_seed: [std.Random.ChaCha.secret_seed_length]u8 = undefined;
-    try init.io.randomSecure(&session_seed);
+    // The context of every session: no instruction, which each program can state truthfully, and
+    // the system's source (docs/design.md §16 decision 48, colibri decision 175).
+    var secure: SecureRandom = .{ .io = init.io };
+    const crypto = stdx.crypto.init(.none(), secure.random());
 
     try resolver.init(&loop, &config, null, std.mem.readInt(u64, &engine_seed, .little), now_ns);
     defer resolver.deinit();
-    resolver.use_tls(.init(&.{}, cpu, session_seed, .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns }));
+    resolver.use_tls(.init(&.{}, crypto, .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns }));
     _ = try resolver.start(&try cocuyo.Question.parse("example.com.", .a), now_ns);
 
     var events: [events_max]rotor.Event = undefined;

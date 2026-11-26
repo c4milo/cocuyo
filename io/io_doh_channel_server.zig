@@ -8,8 +8,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const core = @import("core");
-const server = @import("server");
-const tls = @import("tls");
+const server = @import("colibri").server;
+const tls = @import("colibri").tls;
 const doh = @import("doh");
 const identity = @import("io_doh_channel_identity.zig");
 const constants = @import("io_doh_channel_constants.zig");
@@ -47,14 +47,14 @@ const cookie_key: [tls.constants.protocol.server_key_len]u8 = @splat(cookie_octe
 const ticket_key: [tls.constants.protocol.server_key_len]u8 = @splat(ticket_octet);
 
 /// The server's TLS identity, the test's, with no protocol named: the endpoint names those its
-/// versions allow (colibri's decision 119).
-pub fn identity_values(tickets: bool) tls.Server {
+/// versions allow (colibri's decision 119). Its sessions draw from `source`, which outlives them.
+pub fn identity_values(tickets: bool, source: *std.Random.ChaCha) tls.Server {
     return .{
         .identities = &identity.identities,
         .cookie_key = &cookie_key,
         .ticket_key = if (tickets) &ticket_key else null,
-        // Nothing, so the server's sessions hold TLS_CHACHA20_POLY1305_SHA256 alone.
-        .cpu = identity.cpu_not_stated,
+        // No instruction, so the server's sessions hold TLS_CHACHA20_POLY1305_SHA256 alone.
+        .crypto = identity.support.crypto(.nothing, source).?,
     };
 }
 
@@ -90,6 +90,9 @@ pub const Server = struct {
     /// The connection the endpoint accepted, which each call names.
     connection: server.ConnectionHandle = undefined,
     stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(stream_octet)),
+    /// The room of the connection's TLS session, which the endpoint takes it from (colibri's
+    /// decision 167).
+    tls_buffer: [server.Config.tls_buffer_len(1)]u8 = undefined,
     /// The records the client sent and the server has not read.
     input: [limits.stream_bytes_max]u8 = undefined,
     input_len: usize = 0,
@@ -107,8 +110,8 @@ pub const Server = struct {
 
     pub fn init(self: *Server, script: Script, unix_seconds: u64, now_ns: u64) !void {
         self.* = .{ .script = script };
-        self.config = .{ .tls = identity_values(script.tickets), .protocols = script.protocols };
-        try self.endpoint.init(&self.config, self.stream.random(), .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns });
+        self.config = .{ .tls = identity_values(script.tickets, &self.stream), .protocols = script.protocols, .cpu_features = .none(), .tls_buffer = &self.tls_buffer };
+        try self.endpoint.init(&self.config, .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns });
         // The endpoint names in ALPN the versions it serves. A server that names none has its
         // TCP configuration made again with the identity's empty list, which a test alone does.
         if (script.selects_none) try self.endpoint.tcp_tls.init(self.config.tls.?);
@@ -136,7 +139,8 @@ pub const Server = struct {
     fn read(self: *Server, answerer: Answerer, now_ns: u64) void {
         for (0..limits.server_events_per_input_max) |_| {
             const input: server.Input = if (self.input_len == 0) .none else .{ .stream = .{ .connection = self.connection, .bytes = self.input[0..self.input_len] } };
-            const received = self.endpoint.receive(input, now_ns);
+            var received: server.ReceiveResult = undefined;
+            self.endpoint.receive(input, now_ns, &received);
             if (received.event) |event| self.take(event, answerer);
             std.mem.copyForwards(u8, self.input[0 .. self.input_len - received.consumed], self.input[received.consumed..self.input_len]);
             self.input_len -= received.consumed;

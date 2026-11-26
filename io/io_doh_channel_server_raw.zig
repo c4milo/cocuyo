@@ -10,8 +10,8 @@
 //! §5.5).
 const std = @import("std");
 const assert = std.debug.assert;
-const server = @import("server");
-const tls = @import("tls");
+const server = @import("colibri").server;
+const tls = @import("colibri").tls;
 const constants = @import("io_doh_channel_constants.zig");
 const limits = @import("io_doh_channel_limits.zig");
 const identity = @import("io_doh_channel_identity.zig");
@@ -58,9 +58,9 @@ pub const RawServer = struct {
             .identities = &identity.identities,
             .cookie_key = &cookie_key,
             .alpn = &alpn,
-            .cpu = identity.cpu_not_stated,
+            .crypto = identity.support.crypto(.nothing, &self.stream).?,
         });
-        try self.session.start(&self.config, self.stream.random(), unix_seconds);
+        try self.session.start(&self.config, unix_seconds);
     }
 
     /// Takes what the client sent: the handshake, then the records of its request.

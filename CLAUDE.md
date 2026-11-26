@@ -139,21 +139,21 @@ The architecture depends on every rule in this section.
   whose type is `Resolver`, into the caller's loop: the consumer binds its `rotor` import
   (design §24). One engine runs on each loop and one loop on each core, and nothing is shared
   between them. `io/io_quic.zig` and the files beside it are `cocuyo_quic`, colibri's QUIC under
-  the engine's request interface: a module of its own, whose `quic` import a consumer that speaks
-  DoQ binds to colibri's, so `cocuyo_rotor` never imports colibri. `io/io_chapulin_quic.zig` is
-  `chapulin_quic`, the session over chapulin that a `cocuyo_quic` connection names, whose `quic`
-  and `tls` imports a consumer that speaks DoQ binds to colibri's (design §16 decision 38, as
-  amended). `io/io_chapulin.zig` is `chapulin`, the DoT session over chapulin that
-  `cocuyo_rotor`'s `Options.tls` names, whose `io` is `cocuyo_rotor` and whose `tls` and
-  `tls_provider` imports a consumer that speaks DoT binds to colibri's (design §16 decision 38,
-  as amended for §17 question 64). `io/io_doh.zig` is `doh`, the
+  the engine's request interface: a module of its own, whose `colibri` import a consumer that
+  speaks DoQ binds to colibri's one module, so `cocuyo_rotor` never imports colibri.
+  `io/io_chapulin_quic.zig` is `chapulin_quic`, the session over chapulin that a `cocuyo_quic`
+  connection names, whose `colibri` import a consumer that speaks DoQ binds the same way (design
+  §16 decision 38, as amended). `io/io_chapulin.zig` is `chapulin`, the DoT session over chapulin
+  that `cocuyo_rotor`'s `Options.tls` names, whose `io` is `cocuyo_rotor` and whose `colibri`
+  import a consumer that speaks DoT binds to colibri's one module (design §16 decision 38, as
+  amended for §17 question 64). `io/io_doh.zig` is `doh`, the
   DNS half of DoH: the URI template, the reading of a response and their limits.
   `io/io_doh_channel.zig` and the files beside it are `cocuyo_doh`, colibri's `client.ConnectionPool`
-  under the engine's DoH interface, whose `client` and `tls` imports a consumer that speaks DoH
-  binds to colibri's (design §16 decision 33). Its tests run colibri's server under the TLS
+  under the engine's DoH interface, whose `colibri` import a consumer that speaks DoH binds to
+  colibri's one module (design §16 decision 33). Its tests run colibri's server under the TLS
   identity in `io/testdata/`, a test's own, valid from 2026 to 2126. `io/io_dnssec.zig` is
-  `cocuyo_dnssec`, the DNSSEC verifier over chapulin, whose `dnssec` import a consumer that
-  validates binds to colibri's (design §16 decision 35, as amended; §25 step 10).
+  `cocuyo_dnssec`, the DNSSEC verifier over chapulin, whose `colibri` import a consumer that
+  validates binds to colibri's one module (design §16 decision 35, as amended; §25 step 10).
 - Each module owns its `limits.zig` and its `constants.zig`. A limit two modules share lives in
   `src/core/limits.zig`, and a protocol size or a default two modules share in
   `src/core/constants.zig`.
@@ -234,14 +234,14 @@ The architecture depends on every rule in this section.
   tests, the DoT and DoQ
   sessions' tests and a build of their examples, and the tools' own tests. Every change passes it
   before it is committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`,
-  `test-config`, `test-cache`, `test-dnssec`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`,
-  `test-doh`, `test-cocuyo_quic`, `test-cocuyo_doh`, `test-cocuyo_dnssec`, `test-chapulin`,
+  `test-config`, `test-cache`, `test-dnssec`, `test-sim`, `test-cocuyo`, `test-io`, `test-doh`,
+  `test-cocuyo_quic`, `test-cocuyo_doh`, `test-cocuyo_dnssec`, `test-chapulin`,
   `test-chapulin-quic`),
   `zig build test-examples` and `zig build test-tools` run one target's tests with nothing else in
   the graph, which is what a mutation is measured against. `zig build consumer-check` alone builds
   `test/consumer/`, the package that depends on cocuyo the way a consumer does, with `cocuyo_rotor`
-  over a rotor of its own, and `chapulin_quic` and `chapulin` over a colibri of its own, each
-  pinned where `build.zig.zon` pins it. It requires the same package to fail when it reaches for
+  over a rotor of its own, and `chapulin_quic` and `chapulin` over a colibri and a stdx of its
+  own, each pinned where `build.zig.zon` pins it. It requires the same package to fail when it reaches for
   a module the surface does not export (design §20, §24). `zig build readme-check` alone builds
   every Zig block of README.md, each under the `<!-- readme-check: ... -->` marker that names its
   harness in `tools/readme_check.zig`, and runs the quick start. A new block brings its marker and
@@ -316,10 +316,10 @@ The architecture depends on every rule in this section.
   and no network: names at once, resumption, the version DoH came up on, the certificate checks
   and pins, and records beyond A, which `tools/interop/zone.zig` serves as dnsproxy's upstream.
   The `interop` workflow runs it once a day on macOS.
-- The CPU word: `cpu`, first on the command line of the DoT, DoQ and DoH examples, has the example
-  probe the CPU through stdx and state it to its TLS session (design §16 decision 48). The live
-  checks and the interop check run each encrypted server without the word and with it, and
-  `tools/cpu_word/suite.sh` says which suite each run must reach.
+- The CPU: the DoT, DoQ and DoH examples detect the CPU's features through stdx, set PSTATE.DIT on
+  arm64, and make the `stdx.crypto.Context` of their TLS sessions (design §16 decision 48, as
+  amended on 2026-11-26). The live checks and the interop check run each encrypted server once,
+  and `tools/cpu_suite/suite.sh` says which suite each run must reach on the host.
 - Conformance: `tools/conformance/run.sh [forwarder | resolver | all]` runs hickory-dns's DNSSEC
   conformance suite against `tools/conformance/forward.zig`, which `zig build
   conformance-forward` builds (design §25 step 17). It needs Docker, a Rust toolchain and the
@@ -327,7 +327,7 @@ The architecture depends on every rule in this section.
   `conformance` workflow runs it once a day.
 - Plain DNS through the engine: `zig build example-cleartext-rotor -- [dnssec <anchor file>]
   <name>[/TYPE][,...] <server>[:<port>] [udp | tcp]`, which the interop check drives.
-- The DNSSEC word: `dnssec <anchor file>`, after `cpu` and before the names in the four engine
+- The DNSSEC word: `dnssec <anchor file>`, first, before the names in the four engine
   examples, validates each lookup from the file's DS or DNSKEY records over chapulin's verifier
   (`examples/trust_text.zig`, design §25 step 15).
 - dnslib: `tools/dnslib/run.sh` fetches dnslib's captured responses at a pinned commit and runs

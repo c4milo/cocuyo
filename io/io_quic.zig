@@ -14,7 +14,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
-const quic = @import("quic");
+const quic = @import("colibri").quic;
 const streams_module = @import("io_quic_streams.zig");
 const connection_module = @import("io_quic_connection.zig");
 pub const constants = @import("io_quic_constants.zig");

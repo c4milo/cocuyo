@@ -49,8 +49,9 @@ const threads_example: Example = .{
 /// wrongly makes every example that takes one wrong.
 const shared_roots = [_][]const u8{ "examples/server_text.zig", "examples/answer_text.zig" };
 
-/// What the DoT, DoQ and DoH examples state of the CPU under the word `cpu` (docs/design.md §16
-/// decision 48). Its tests read stdx's `platform`, so they run where the build resolved stdx.
+/// What the DoT, DoQ and DoH examples state of the CPU (docs/design.md §16 decision 48, as
+/// amended). Its tests read stdx's `platform` and `crypto`, so they run where the build resolved
+/// stdx.
 const cpu_root = "examples/cpu_text.zig";
 
 /// What the engine examples validate under, with the word `dnssec` (docs/design.md §25 step 15).
@@ -74,7 +75,7 @@ pub fn add(
     test_step: *std.Build.Step,
     rotor: ?*std.Build.Dependency,
     colibri: ?*std.Build.Dependency,
-    platform: ?*std.Build.Module,
+    stdx: ?*std.Build.Module,
     sanitize_thread: bool,
 ) void {
     // Built for another target with `-Dtarget`, an example cannot run where it was built, and
@@ -105,9 +106,9 @@ pub fn add(
         test_step.dependOn(run);
         examples_step.dependOn(run);
     }
-    const probe = platform orelse return;
+    const stdx_module = stdx orelse return;
     const module = b.createModule(.{ .root_source_file = b.path(cpu_root), .target = target, .optimize = optimize });
-    module.addImport("platform", probe);
+    module.addImport("stdx", stdx_module);
     const run = &b.addRunArtifact(b.addTest(.{ .name = std.fs.path.stem(cpu_root), .root_module = module })).step;
     test_step.dependOn(run);
     examples_step.dependOn(run);

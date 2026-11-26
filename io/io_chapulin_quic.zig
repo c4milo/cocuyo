@@ -4,26 +4,20 @@
 //! key. The session turns a server's `Tls` and the context into colibri's values, and hands the
 //! connection colibri's provider and suite.
 //!
-//! chapulin draws every random octet from the engine's seeded stream, which `start` hands colibri
-//! (colibri#71). The image supplies one hook of chapulin, `ch_assert_fail`, from `chapulin_hooks`.
+//! chapulin draws every random octet from the random source of the consumer's
+//! `stdx.crypto.Context`, which the session's context holds (colibri decision 175). chapulin's
+//! module defines its one hook, `ch_assert_fail` (colibri decision 172).
 //!
 //! The package registers this file as the module `chapulin_quic` (docs/design.md §16 decision 38,
-//! as amended). cocuyo's build binds its `cocuyo`, `cocuyo_quic` and `chapulin_hooks` to the
-//! modules it registers under those names. A consumer that speaks DoQ binds colibri's `quic` and
-//! `tls` into it, and colibri's `quic` into `cocuyo_quic`.
+//! as amended). cocuyo's build binds its `cocuyo` and `cocuyo_quic` to the modules it registers
+//! under those names. A consumer that speaks DoQ binds colibri's one module, `colibri`, into it and
+//! into `cocuyo_quic` (colibri decision 170).
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
-const quic = @import("quic");
-const tls = @import("tls");
+const quic = @import("colibri").quic;
+const tls = @import("colibri").tls;
 const constants = @import("cocuyo_quic").constants;
-const hooks = @import("chapulin_hooks");
-
-// colibri's objects call `ch_assert_fail` whatever of the session a program uses, so the image
-// links it whenever it links the session.
-comptime {
-    _ = hooks;
-}
 
 const tls_provider = quic.tls_provider;
 
@@ -31,35 +25,33 @@ pub const Session = struct {
     /// A root the chain may end at: its subject Name and its SubjectPublicKeyInfo, each a whole
     /// DER TLV (colibri's `values.zig`).
     pub const Anchor = tls.Anchor;
-    /// What the consumer states of its CPU: what its probe found, and the timing mode of the thread
-    /// that drives the engine (colibri's `values.zig`). It decides the suites of each hello
-    /// (docs/design.md §16 decision 48).
-    pub const Cpu = tls.Cpu;
+    /// The consumer's `stdx.crypto.Context`: its CPU's features, which decide the suites of each
+    /// hello, and the random source chapulin draws from (colibri decision 175, docs/design.md §16
+    /// decision 48 as amended). The engine names it through colibri, and reaches no stdx of its own.
+    pub const Crypto = @FieldType(tls.Client, "crypto");
     /// The most roots a context holds: what colibri's configuration takes, chapulin's
     /// `CH_WEBPKI_ANCHOR_MAX`.
     pub const anchors_max = tls.quic.ClientConfig.anchors_max;
 
     /// What every session starts from (docs/design.md §24, the context a session starts from). It
-    /// holds the anchors, the consumer's statement of its CPU, the wall clock, and the stream
-    /// chapulin draws from. No field has a default, so a context is built by `init`, with each of
-    /// them named (§16 decision 39). The anchors are the caller's and outlive the engine.
+    /// holds the anchors, the consumer's `Crypto`, and the wall clock. No field has a default, so a
+    /// context is built by `init`, with each of them named (§16 decision 39). The anchors are the
+    /// caller's and outlive the engine.
     pub const Context = struct {
         anchors: []const Anchor,
-        cpu: Cpu,
-        stream: std.Random.ChaCha,
+        crypto: Crypto,
         unix_seconds: u64,
         at_ns: u64,
 
-        /// `cpu` is the consumer's probe and its thread's timing mode, which the engine cannot
-        /// check (§16 decision 48). Under `data_independent`, with the AES instructions found,
-        /// each hello offers AES-GCM first; under any other value, ChaCha20-Poly1305 alone. `seed`
-        /// must be 32 octets of a CSPRNG, drawn for this context alone: chapulin draws each
-        /// handshake's random and its key shares from the stream they key. `timestamp` is the
-        /// wall clock at an instant of the caller's. `anchors` may be none when every server is
-        /// known by its pins.
-        pub fn init(anchors: []const Anchor, cpu: Cpu, seed: [std.Random.ChaCha.secret_seed_length]u8, timestamp: cocuyo.Timestamp) Context {
+        /// `crypto` holds the consumer's CPU features and its random source, which the engine
+        /// cannot check (§16 decision 48, as amended). Where stdx states that the AES instructions
+        /// run in constant time, each hello offers AES-GCM first; elsewhere, ChaCha20-Poly1305
+        /// alone. chapulin draws each handshake's random and its key shares from the random source,
+        /// which must be a CSPRNG's and outlive the engine. `timestamp` is the wall clock at an
+        /// instant of the caller's. `anchors` may be none when every server is known by its pins.
+        pub fn init(anchors: []const Anchor, crypto: Crypto, timestamp: cocuyo.Timestamp) Context {
             assert(anchors.len <= anchors_max);
-            return .{ .anchors = anchors, .cpu = cpu, .stream = std.Random.ChaCha.init(seed), .unix_seconds = timestamp.unix_seconds, .at_ns = timestamp.monotonic_ns };
+            return .{ .anchors = anchors, .crypto = crypto, .unix_seconds = timestamp.unix_seconds, .at_ns = timestamp.monotonic_ns };
         }
 
         /// The wall clock at `now_ns`, carried forward from the instant the context was made.
@@ -100,18 +92,18 @@ pub const Session = struct {
         assert(server.valid());
         self.* = .{};
         self.alpn = .{start_with.alpn};
-        // What the consumer stated of its CPU decides the suites of the hello (§16 decision 48).
-        // A server that requires the hybrid gets a hello that offers it alone (§21, TLS rule 10).
-        self.config.init(.{ .trust = trust(server, context, &self.hostname), .alpn = &self.alpn, .cpu = context.cpu, .require_pq = server.require_post_quantum }) catch return error.Failed;
+        // The consumer's CPU features decide the suites of the hello (§16 decision 48). A server
+        // that requires the hybrid gets a hello that offers it alone (§21, TLS rule 10).
+        self.config.init(.{ .trust = trust(server, context, &self.hostname), .alpn = &self.alpn, .crypto = context.crypto, .require_pq = server.require_post_quantum }) catch return error.Failed;
         var resumption: ?tls.Resumption = null;
         if (start_with.ticket) |ticket| {
             self.resuming = ticket;
             self.offered = true;
             resumption = .{ .ticket = &self.resuming, .age_ms = start_with.ticket_age_ns / constants.ns_per_millisecond };
         }
-        // chapulin draws from the context's stream, which outlives every session of the engine.
+        // chapulin draws from the context's random source, which outlives every session.
         self.started = true;
-        self.client.start(&self.config, context.stream.random(), context.seconds_at(start_with.now_ns), resumption) catch return self.fail();
+        self.client.start(&self.config, context.seconds_at(start_with.now_ns), resumption) catch return self.fail();
     }
 
     /// How chapulin checks the server, as the DoT session tells it (`io_chapulin.zig`): a name

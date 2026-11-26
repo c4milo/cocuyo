@@ -4,7 +4,7 @@
 //! ask. DoH goes through colibri's channel, in `examples/doh_rotor.zig`.
 //!
 //!     zig build example-doq-rotor -- \
-//!         [cpu] [dnssec <anchor file>] <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...
+//!         [dnssec <anchor file>] <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...
 //!
 //! for instance `example.com 94.140.14.14 dns.adguard-dns.com usertrust-ecc.der`. Each root is a DER
 //! certificate the server's chain is expected to end at (`examples/root_text.zig`). The leaf must
@@ -19,21 +19,21 @@
 //! one connection, each on a stream of its own. After each turn the example says how its
 //! handshake went, and the suite it chose.
 //!
-//! With the word `cpu` first, the example states its CPU (`examples/cpu_text.zig`, docs/design.md
-//! §16 decision 48). It probes the CPU through stdx's `platform`, and on arm64 sets PSTATE.DIT
-//! where the probe found FEAT_DIT. There it states `data_independent`, and each hello offers
-//! AES-GCM first where the probe also found the AES instructions. Elsewhere, and without the word,
-//! the example states nothing, and each hello offers TLS_CHACHA20_POLY1305_SHA256 alone. The
-//! example says what it states before the first turn.
+//! The example detects the CPU's features through stdx's `platform` (`examples/cpu_text.zig`,
+//! docs/design.md §16 decision 48, as amended), and on arm64 sets PSTATE.DIT where detection found
+//! FEAT_DIT. Each hello then offers AES-GCM first where the CPU has the AES and carry-less multiply
+//! instructions, on arm64 only with the bit set, and TLS_CHACHA20_POLY1305_SHA256 alone elsewhere.
+//! The example says what it detected before the first turn.
 //!
-//! With the word `dnssec` and a file of DS or DNSKEY records after `cpu`, the example validates
+//! With the word `dnssec` and a file of DS or DNSKEY records first, the example validates
 //! each lookup from those anchors (`examples/trust_text.zig`, docs/design.md §25 step 15).
 //!
 //! What cocuyo does not read, the caller hands in (§24):
 //!
 //! - the wall clock, for the certificate's dates;
-//! - octets from a CSPRNG, for the handshake's keys and the connection IDs;
-//! - what it states of its CPU.
+//! - a CSPRNG, for the handshake's keys, which `io.randomSecure` gives, and octets from it for
+//!   the connection IDs;
+//! - what it states of its CPU, in the `stdx.crypto.Context` of the CPU and the keys.
 const std = @import("std");
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
@@ -94,11 +94,11 @@ const at_once_max = 4;
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     // Once, at the start, on the one thread that drives the engine and each of its sessions.
-    const command = cpu_text.command(chapulin.Session.Cpu, try init.minimal.args.toSlice(arena));
-    const trusted = trust_text.read(command.operands);
+    const features = cpu_text.detect();
+    const trusted = trust_text.read((try init.minimal.args.toSlice(arena))[1..]);
     const arguments = trusted.operands;
     if (arguments.len < 3) {
-        std.debug.print("usage: doq-rotor [cpu] [dnssec <anchor file>] <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...\n", .{});
+        std.debug.print("usage: doq-rotor [dnssec <anchor file>] <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...\n", .{});
         std.process.exit(2);
     }
     const at = try server_text.place_of(arguments[1]);
@@ -142,15 +142,17 @@ pub fn main(init: std.process.Init) !void {
         anchors[index] = try root_text.anchor_of(chapulin.Session.Anchor, der);
     }
 
-    var seed: [std.Random.ChaCha.secret_seed_length]u8 = undefined;
-    try init.io.randomSecure(&seed);
+    // The source of every session's keys, which outlives the engine, and the one context of the
+    // CPU and the source (colibri decision 175).
+    var secure: cpu_text.SecureRandom = .{ .io = init.io };
+    const crypto = cpu_text.context(features, &secure);
     var id_seed: [std.Random.ChaCha.secret_seed_length]u8 = undefined;
     try init.io.randomSecure(&id_seed);
     var engine_seed: [@sizeOf(u64)]u8 = undefined;
     try init.io.randomSecure(&engine_seed);
     const clock: Clock = .init(init.io);
     const unix_seconds: u64 = @intCast(@divFloor(std.Io.Timestamp.now(init.io, .real).nanoseconds, std.time.ns_per_s));
-    cpu_text.report(command.cpu);
+    cpu_text.report(features);
 
     var loop: rotor.Loop = undefined;
     try loop.init(&loop_memory, &loop_options);
@@ -160,7 +162,7 @@ pub fn main(init: std.process.Init) !void {
     // The engine has no context of its own, and a lookup started before this call would stop the
     // program at an assertion (docs/design.md §16 decision 39).
     engine.use_quic(.{
-        .session = .init(anchors[0..roots.len], command.cpu, seed, .{ .unix_seconds = unix_seconds, .monotonic_ns = clock.read() }),
+        .session = .init(anchors[0..roots.len], crypto, .{ .unix_seconds = unix_seconds, .monotonic_ns = clock.read() }),
         .stream = std.Random.ChaCha.init(id_seed),
     });
     defer {

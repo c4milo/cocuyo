@@ -8,7 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
-const server = @import("server");
+const server = @import("colibri").server;
 const cocuyo_doh = @import("io_doh_channel.zig");
 const identity = @import("io_doh_channel_identity.zig");
 const tcp_server = @import("io_doh_channel_server.zig");
@@ -51,9 +51,11 @@ fn echo(context: *anyopaque, asked: []const u8, out: []u8) ?usize {
 /// The type, colibri's server over QUIC, and what the type said, on the heap.
 const Pair = struct {
     doh: Doh = .{},
-    /// A test's context, built where the pair is, at the pair's first instant: no pair holds one
-    /// that nobody named.
-    context: Doh.Context = identity.test_context(seed_octet, round_ns),
+    /// The stream the pair's context draws from, which outlives the channel.
+    stream: std.Random.ChaCha = identity.support.stream(seed_octet),
+    /// A test's context, built in `open` at the pair's first instant: no pair holds one that
+    /// nobody named.
+    context: Doh.Context = undefined,
     server: quic_server.QuicServer = .{},
     wire: [Doh.output_bytes_max]u8 = undefined,
     said: [said_max]Event = undefined,
@@ -80,6 +82,7 @@ const Pair = struct {
     }
 
     fn open(pair: *Pair, script: tcp_server.Script) !void {
+        pair.context = identity.test_context(&pair.stream, round_ns);
         try pair.server.init(script, identity.unix_seconds, pair.now_ns);
         const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(pair.name) };
         try pair.doh.start(.{

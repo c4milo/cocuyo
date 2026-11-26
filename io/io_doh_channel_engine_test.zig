@@ -15,7 +15,7 @@ const cocuyo_quic = @import("cocuyo_quic");
 const identity = @import("io_doh_channel_identity.zig");
 const server_module = @import("io_doh_channel_server.zig");
 const quic_server = @import("io_doh_channel_server_quic.zig");
-const colibri_server = @import("server");
+const colibri_server = @import("colibri").server;
 
 const lookups: usize = 4;
 const group_buffers: usize = 16;
@@ -172,6 +172,8 @@ const World = struct {
     events: [events_max]rotor.Event = undefined,
     sides: [servers]Side = undefined,
     quic_sides: [servers]QuicSide = undefined,
+    /// The stream the engine's DoH context draws from, which outlives the engine.
+    stream: std.Random.ChaCha = undefined,
 
     fn create(seed: u64, script: server_module.Script) !*World {
         return create_over(seed, script, false);
@@ -201,7 +203,8 @@ const World = struct {
         try world.engine.init(&world.loop, &world.config, world.cache_memory.slices(), seed, world.loop.now());
         // The engine has no context of its own (docs/design.md §16 decision 39): a test's, as a
         // consumer names its own after `init`.
-        world.engine.use_doh(identity.test_context(@truncate(seed), world.loop.now()));
+        world.stream = identity.support.stream(@truncate(seed));
+        world.engine.use_doh(identity.test_context(&world.stream, world.loop.now()));
         for (&world.sides, &world.quic_sides, 0..) |*side, *quic_side, index| {
             side.* = .{ .index = @intCast(index), .network = world.loop.network(), .script = script };
             world.loop.network().stream_responders[index] = side.responder();

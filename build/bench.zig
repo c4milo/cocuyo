@@ -64,7 +64,7 @@ pub fn add(
 /// ReleaseSafe build, so nothing is added until colibri is fetched. The gate compiles it.
 fn add_dnssec(b: *std.Build, target: std.Build.ResolvedTarget, graph: modules.Graph, test_step: *std.Build.Step) void {
     const colibri = b.lazyDependency("colibri", .{ .target = target, .release = true }) orelse return;
-    graph.cocuyo_dnssec.addImport("dnssec", colibri.module("dnssec"));
+    graph.cocuyo_dnssec.addImport("colibri", colibri.module("colibri"));
     const fixtures = b.createModule(.{
         .root_source_file = b.path("io/dnssec/fixtures.zig"),
         .target = target,

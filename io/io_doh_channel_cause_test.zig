@@ -27,6 +27,7 @@ fn create(known: *const cocuyo.Tls, refused: bool) !*Pair {
     const pair = try testing.allocator.create(Pair);
     errdefer testing.allocator.destroy(pair);
     pair.* = .{ .refuses_links = refused };
+    pair.context = identity.test_context(&pair.stream, channel_test.round_ns);
     try pair.server.init(.{}, identity.unix_seconds, pair.now_ns);
     try pair.doh.start(.{
         .server = 0,

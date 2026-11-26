@@ -2691,6 +2691,26 @@ step until `zig build test` passes.
     no transition of §5 and no rule of §19 steps 13 and 14 reads the build.
 
     §17 question 64, §21 (the session interface), §24 (colibri as a dependency).
+
+    **Amended on 2026-11-26, for colibri's decisions 170 and 172, on the owner's ruling that
+    cocuyo catch up with colibri.** colibri exports one module, `colibri`, which names each of its
+    others. So each module of `io/` that imported colibri's `tls`, `tls_provider`, `quic`,
+    `client`, `server` or `dnssec` imports `colibri`, and reads them from it. A consumer binds
+    colibri's one module into `chapulin`, `chapulin_quic`, `cocuyo_quic`, `cocuyo_doh` and
+    `cocuyo_dnssec`, each under the name `colibri`, as `test/consumer/build.zig` does.
+
+    - The registered module `chapulin_hooks` is gone. chapulin's module defines `ch_assert_fail`
+      itself, and colibri's `tls` and `dnssec` keep it in each image that reaches them. An image
+      that defined the hook too would fail to link with a second definition.
+    - colibri's one module reaches stdx's `crypto`, which carries chapulin's objects. So each
+      program that holds `cocuyo_quic` links chapulin, as one that speaks DoQ did before. The
+      every-field check builds the engine without the imports of the engine's own tests, so it
+      links none.
+    - colibri's server and client configurations take the program's `CpuFeatures`, and its
+      server's engine takes the room of its TCP sessions over TLS (its decision 167). The DoH
+      channel passes its context's features, and the tests' servers pass none.
+    - `test/consumer/` pins stdx at the commit colibri pins, beside colibri and rotor, and the
+      consumer check holds all three pins to `build.zig.zon`'s.
 39. **The engine holds no default context, and a lookup whose transport's context was never set
     stops it.** Ruled by the owner on 2026-10-11, on a finding of the same day: "No default
     context. An engine asked to open a DoT, DoQ or DoH session whose context was never set
@@ -3658,6 +3678,47 @@ step until `zig build test` passes.
     build test-examples` runs them alone. No test reads two lines of each example: the report of
     `command.cpu`, and the context's `init` that takes it. The live checks and the interop check
     run those lines. docs/mutations.md, the CPU an example states, records the rows.
+
+    **Amended by the owner on 2026-11-26: each example detects, and the word is gone.** colibri
+    decision 175 replaced `tls.Cpu` with the program's `stdx.crypto.Context`, which holds the
+    CPU's features and the random source. stdx states the timing of the AES instructions to
+    chapulin. On x86-64 it states it from detection, as the owner ruled for stdx (its decision 87
+    as amended). On arm64 it reads the thread's PSTATE.DIT, where the features hold FEAT_DIT. So a
+    program no longer states a mode it cannot read, which was the reason the word was off by
+    default. The owner asked why the examples offered ChaCha20 alone, and ruled that each example
+    detects.
+
+    - Each context's `init` takes the consumer's `Crypto`, the type of colibri's
+      `tls.Client.crypto`, in place of the `Cpu` and the 32 octets of a seed. The engine names the
+      type through colibri, so no module rooted in `io/` reaches stdx but below colibri. DoQ's
+      context keeps its own stream, for the connection IDs.
+    - Each example calls `cpu_text.detect` first in `main`. It takes `CpuFeatures.detect()`, then
+      sets PSTATE.DIT with `platform.set_data_independent_timing(features, true)` on arm64 with
+      FEAT_DIT. It makes its context with `stdx.crypto.init(features, random)`, where `random`
+      draws from `io.randomSecure`.
+    - Each hello then offers TLS_AES_256_GCM_SHA384, TLS_AES_128_GCM_SHA256 and
+      TLS_CHACHA20_POLY1305_SHA256 where the CPU has the AES instructions and a carry-less
+      multiply, on arm64 with the bit set. Elsewhere it offers TLS_CHACHA20_POLY1305_SHA256 alone.
+    - Each example prints `cpu: aes <yes|no>, carry-less multiply <yes|no>, dit <yes|no>` before
+      its first turn. `dit` is the thread's mode, which only arm64 reads.
+    - Each live check and the interop check run each server once. `tools/cpu_suite/suite.sh`,
+      which was `tools/cpu_word/suite.sh`, reads the host from `sysctl` and `/proc/cpuinfo` as
+      before, and on x86-64 now reads AES and PCLMULQDQ. Each run must reach AES-GCM where the
+      host reports the AES instructions and a carry-less multiply, on arm64 FEAT_DIT too, and
+      ChaCha20-Poly1305 elsewhere.
+    - The sessions' tests name the CPU by a case of `io/io_crypto_test_support.zig`: no
+      instruction, the AES instructions with their timing stated, the AES instructions on arm64
+      with no FEAT_DIT, and a carry-less multiply alone. At the stdx that colibri pins, the context
+      is a plain struct of the features and the random source. So a test names both, and reaches
+      no stdx. A test that offers AES-GCM sets PSTATE.DIT on arm64 with the MSR the word used, and
+      skips on an arm64 core without FEAT_DIT. Each test owns the stream its context draws from,
+      so each run draws what the last drew.
+    - stdx's grouped calls, its commit `b66cfa2`, add fields to the context that its `init`
+      computes. When they reach stdx's main, a test needs `init` through the context's type, and
+      not a struct of two fields.
+
+    Rejected: the word, off by default, which made each example offer ChaCha20 alone where stdx
+    states the timing; and the word as a no-op, a name for nothing.
 
     No named limit changes, and no public API either: the change is in the examples and the build.
     No model changes. No transition of §5 and no rule of §19 steps 13 and 14 reads the value.
@@ -5743,6 +5804,11 @@ consumer fills. The examples do not fill it from a probe, and the sessions name 
     Answered on 2026-10-20: the third. stdx is a ruled dependency of the examples alone, and the
     word `cpu` turns the statement on. Each live check and the interop check run each server
     twice. Built on 2026-10-20: §16 decision 48, as amended.
+
+    Answered again by the owner on 2026-11-26: each example detects, with no word (§16 decision
+    48, as amended that day). stdx now states the timing of each x86-64 core from detection, and
+    reads PSTATE.DIT on arm64, so detection states no mode a program cannot read.
+
 59. **The name a DoT or DoQ consumer gives the type.** The sessions of `io/io_chapulin.zig` and
     `io/io_chapulin_quic.zig` export `Session.Cpu`, which is colibri's `tls.Cpu`. Each already
     exports `Session.Anchor`, which is `tls.Anchor`. So a consumer that copies an example names

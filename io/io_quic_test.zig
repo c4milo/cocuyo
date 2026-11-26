@@ -6,7 +6,7 @@ const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
-const quic = @import("quic");
+const quic = @import("colibri").quic;
 const cocuyo_quic = @import("cocuyo_quic");
 const io = @import("io.zig");
 

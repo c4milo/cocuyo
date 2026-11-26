@@ -3,21 +3,16 @@
 //! signatures and the DS digests, and `dnssec.nsec3.Hasher`, NSEC3's iterated SHA-1. The library
 //! in `src/` holds no cryptography: each hash and each signature here is chapulin's.
 //!
-//! The `dnssec` import is colibri's, which a consumer that validates binds, as it binds colibri's
-//! `quic` into `cocuyo_quic`. The image defines chapulin's hook once, through `chapulin_hooks`.
+//! The `colibri` import is colibri's one module, whose `dnssec` this reads, and which a consumer
+//! that validates binds, as it binds it into `cocuyo_quic`. chapulin's module defines its one hook,
+//! and colibri's `dnssec` keeps it (colibri decision 172).
 //! One check or one digest runs at a time, as `Verifier` asks, so the state is one `Hash`.
 const std = @import("std");
 const assert = std.debug.assert;
-const colibri = @import("dnssec");
+const colibri = @import("colibri").dnssec;
 /// cocuyo's own `dnssec`, which the build binds here and registers nowhere, so the verifier fills
 /// in its interfaces and no consumer reaches its internals.
 const validation = @import("validation");
-const hooks = @import("chapulin_hooks");
-
-comptime {
-    // The image's one `ch_assert_fail`, which chapulin's object leaves to it.
-    _ = hooks;
-}
 
 pub const Chapulin = struct {
     /// The check or the digest running now.

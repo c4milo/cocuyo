@@ -1,9 +1,9 @@
-//! DNSSEC's verifier over chapulin, through colibri's `dnssec` module (docs/design.md §25 step 10,
+//! DNSSEC's verifier over chapulin, through colibri's `dnssec` (docs/design.md §25 step 10,
 //! §16 decision 35 as amended). colibri is a lazy dependency, so the build adds nothing until it is
 //! fetched, and neither the library's tests nor a consumer that does not validate needs chapulin.
 //!
 //! The verifier is `cocuyo_dnssec`, a module the build registers. Its tests use that module, with
-//! colibri's `dnssec` bound into it here as a consumer binds it.
+//! colibri's one module bound into it here as a consumer binds it (colibri decision 170).
 const std = @import("std");
 const modules = @import("modules.zig");
 
@@ -11,7 +11,7 @@ const modules = @import("modules.zig");
 /// them, so a colibri or a chapulin that breaks a check fails it.
 pub fn add(b: *std.Build, graph: modules.Graph, test_step: *std.Build.Step, colibri: ?*std.Build.Dependency) void {
     const resolved = colibri orelse return;
-    graph.cocuyo_dnssec.addImport("dnssec", resolved.module("dnssec"));
+    graph.cocuyo_dnssec.addImport("colibri", resolved.module("colibri"));
     // The tests read cocuyo's `dnssec` too, its signed data and its validator, through a root of
     // their own, so no module a consumer imports carries them.
     const root = b.createModule(.{

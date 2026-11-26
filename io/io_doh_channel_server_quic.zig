@@ -6,7 +6,7 @@
 const std = @import("std");
 const cocuyo = @import("cocuyo");
 const core = @import("core");
-const server = @import("server");
+const server = @import("colibri").server;
 const constants = @import("io_doh_channel_constants.zig");
 const limits = @import("io_doh_channel_limits.zig");
 const tcp_server = @import("io_doh_channel_server.zig");
@@ -48,8 +48,8 @@ pub const QuicServer = struct {
     pub fn init(self: *QuicServer, script: tcp_server.Script, unix_seconds: u64, now_ns: u64) !void {
         self.* = .{ .script = script };
         // The endpoint names `h3` for its QUIC connections (RFC 9114 §3.1; colibri's decision 119).
-        self.config = .{ .tls = tcp_server.identity_values(script.tickets) };
-        try self.endpoint.init(&self.config, self.stream.random(), .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns });
+        self.config = .{ .tls = tcp_server.identity_values(script.tickets, &self.stream), .cpu_features = .none() };
+        try self.endpoint.init(&self.config, .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns });
     }
 
     /// Takes a datagram from `from`, and answers each request the endpoint reads.
@@ -81,7 +81,8 @@ pub const QuicServer = struct {
     fn read(self: *QuicServer, input: server.Input, answerer: ?tcp_server.Answerer, now_ns: u64) void {
         var next = input;
         for (0..events_per_input_max) |_| {
-            const received = self.endpoint.receive(next, now_ns);
+            var received: server.ReceiveResult = undefined;
+            self.endpoint.receive(next, now_ns, &received);
             next = .none;
             const event = received.event orelse return;
             switch (event) {

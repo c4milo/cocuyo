@@ -131,7 +131,6 @@ pub fn build(b: *std.Build) void {
         .{ .name = "sim", .module = graph.sim },
         .{ .name = "cocuyo", .module = graph.cocuyo },
         .{ .name = "io", .module = graph.io },
-        .{ .name = "chapulin_hooks", .module = graph.chapulin_hooks },
         .{ .name = "doh", .module = graph.doh },
     };
     for (unit_test_modules) |entry| {
@@ -158,7 +157,7 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(consumer_check.add(b, host_module(b, "tools/consumer_check.zig")));
     test_step.dependOn(readme_check.add(b, host_module(b, "tools/readme_check.zig")));
-    test_step.dependOn(every_field.add(b, graph.cocuyo, graph.io));
+    test_step.dependOn(every_field.add(b, graph));
     test_step.dependOn(fill_check.add(b, host_module(b, "tools/fill_check/fill_check.zig")));
     // rotor drives the examples over a real loop and the comparison. A rotor asked for no mode
     // builds Debug, so it follows `-Drelease` as colibri does, and the comparison, ReleaseSafe
@@ -167,18 +166,20 @@ pub fn build(b: *std.Build) void {
     const rotor = b.lazyDependency("rotor", .{ .target = target, .release = release });
     const rotor_release = b.lazyDependency("rotor", .{ .target = target, .release = true });
     const colibri = b.lazyDependency("colibri", .{ .target = target, .release = release });
-    // stdx's `platform`, which the DoT, DoQ and DoH examples state their CPU from under the word
-    // `cpu` (docs/design.md §16 decision 48). Only this root build requests it, once it has rotor
-    // and colibri. It takes the options colibri gives it, so the build holds one stdx, whose `Cpu`
-    // is the type colibri's `tls.Cpu` holds. The examples' compile proves it: a second stdx, at
-    // another commit or with other options, would be a second type, which `tls.Cpu` refuses.
-    const stdx = if (rotor != null and colibri != null) b.lazyDependency("stdx", .{ .target = target, .release = release }) else null;
-    const platform = if (stdx) |found| found.module("platform") else null;
+    // stdx, whose `platform` the DoT, DoQ and DoH examples detect the CPU's features with, and
+    // whose `crypto` makes the context colibri's TLS takes (docs/design.md §16 decision 48, as
+    // amended). Only this root build requests it, once it has rotor and colibri.
+    // It asks what colibri asks, `.crypto = true` among it (colibri decision 174), so the build
+    // holds one stdx, whose `crypto.Context` is the type colibri's TLS holds. The examples'
+    // compile proves it: a second stdx, at another commit or with other options, would be a
+    // second type, which colibri's TLS refuses.
+    const stdx = if (rotor != null and colibri != null) b.lazyDependency("stdx", .{ .target = target, .release = release, .crypto = true }) else null;
+    const stdx_module = if (stdx) |found| found.module("stdx") else null;
     test_step.dependOn(graph_check.add(b, host_module(b, "tools/graph_check.zig"), .{ .stdx = stdx, .colibri = colibri }));
     // ThreadSanitizer, over the comparison's tests and the two-engine example (Linux alone: Zig
     // 0.16 cannot build its runtime for arm64 macOS).
     const sanitize_thread = b.option(bool, "sanitize-thread", "Run the comparison's tests and the two-engine example under ThreadSanitizer (Linux)") orelse false;
-    examples.add(b, graph, target, optimize, test_step, rotor, colibri, platform, sanitize_thread);
+    examples.add(b, graph, target, optimize, test_step, rotor, colibri, stdx_module, sanitize_thread);
     conformance.add(b, graph, target, optimize, test_step, rotor, colibri);
     bench.add(b, target, test_step, tool_test_step, rotor_release, sanitize_thread);
     const tla_tool = b.addExecutable(.{ .name = "tla", .root_module = tool_module(b, pepegrillo, "tools/tla.zig") });
@@ -186,11 +187,11 @@ pub fn build(b: *std.Build) void {
         .name = "lean",
         .root_module = tool_module(b, pepegrillo, "tools/lean.zig"),
     }), tla_tool);
-    dot.add(b, target, optimize, graph, test_step, .{ .rotor = rotor, .colibri = colibri, .platform = platform });
+    dot.add(b, target, optimize, graph, test_step, .{ .rotor = rotor, .colibri = colibri, .stdx = stdx_module });
     quic.add(b, graph, colibri, test_step);
     add_coverage(b, &(unit_test_modules ++ replays), graph, colibri != null, test_step);
-    doq.add(b, target, optimize, graph, test_step, .{ .rotor = rotor, .colibri = colibri, .platform = platform });
-    doh.add(b, target, optimize, graph, test_step, .{ .rotor = rotor, .colibri = colibri, .platform = platform });
+    doq.add(b, target, optimize, graph, test_step, .{ .rotor = rotor, .colibri = colibri, .stdx = stdx_module });
+    doh.add(b, target, optimize, graph, test_step, .{ .rotor = rotor, .colibri = colibri, .stdx = stdx_module });
     dnssec_verifier.add(b, graph, test_step, colibri);
     dnslib.add(b, target, graph, test_step, tool_test_step);
     fuzz.add(b, target, graph, test_step, tool_test_step);

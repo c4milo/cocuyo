@@ -7,8 +7,8 @@
 //! version 2. Split out of `io_chapulin_quic_test.zig`.
 const std = @import("std");
 const cocuyo = @import("cocuyo");
-const quic = @import("quic");
-const tls = @import("tls");
+const quic = @import("colibri").quic;
+const tls = @import("colibri").tls;
 const cocuyo_quic = @import("cocuyo_quic");
 const session_module = @import("io_chapulin_quic.zig");
 
@@ -39,9 +39,9 @@ const key: tls.Key = p256_key: {
 const identities = [_]tls.Identity{.{ .chain = &chain, .key = &key }};
 const anchors = [_]tls.Anchor{.{ .subject = @embedFile("testdata/identity.name"), .spki = @embedFile("testdata/identity.spki") }};
 const server_name = "dns.example.";
-/// What the server and the client state of the CPU: nothing (docs/design.md §16 decision 48). Each
-/// side then holds TLS_CHACHA20_POLY1305_SHA256 alone.
-const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated };
+/// What the server and the client state of the CPU: no instruction (docs/design.md §16 decision
+/// 48). Each side then holds TLS_CHACHA20_POLY1305_SHA256 alone.
+const support = @import("io_crypto_test_support.zig");
 /// 2026-06-01T00:00:00Z, inside the identity's validity.
 const unix_seconds: u64 = 1_780_272_000;
 
@@ -90,7 +90,7 @@ const Server = struct {
             .cookie_key = &cookie_key,
             .ticket_key = &ticket_key,
             .alpn = &alpn,
-            .cpu = cpu_not_stated,
+            .crypto = support.crypto(.nothing, &server.stream).?,
         });
     }
 
@@ -132,7 +132,7 @@ const Server = struct {
             .receive = server.pool.storage(),
         });
         server.send_scratch = .{};
-        server.session.start(&server.config, server.stream.random(), unix_seconds, long.version);
+        server.session.start(&server.config, unix_seconds, long.version);
         server.session.set_version_chooser(quic.Connection.version_chooser(&server.connection));
         var body: [limits.params_bytes_max]u8 = undefined;
         var writer = quic.core.Writer.init(&body);
@@ -169,11 +169,14 @@ fn read_none(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usi
 const Side = struct {
     client: Client = .{},
     context: Client.Context = undefined,
+    /// The stream the session's context draws from, which outlives the session.
+    session_stream: std.Random.ChaCha = undefined,
 
     fn start(side: *Side, ticket: ?Session.Ticket, now_ns: u64) !void {
         side.* = .{};
+        side.session_stream = support.stream(session_seed_octet);
         side.context = .{
-            .session = .init(&anchors, cpu_not_stated, @splat(session_seed_octet), .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns }),
+            .session = .init(&anchors, support.crypto(.nothing, &side.session_stream).?, .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns }),
             .stream = std.Random.ChaCha.init(@splat(ids_seed_octet)),
         };
         const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(server_name) };

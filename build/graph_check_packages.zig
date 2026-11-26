@@ -4,8 +4,9 @@
 //!
 //! - No module rooted in `src/` reaches a module of stdx, at any depth.
 //! - No module rooted in `io/` reaches a module of stdx, at any depth, except below a module of
-//!   colibri. colibri's `tls` imports stdx's `platform` (colibri's decision 97), and its `client`
-//!   imports stdx's decoders. The engine imports both by right.
+//!   colibri. colibri's one module, `colibri`, reaches stdx through its `tls`, which takes chapulin
+//!   from `stdx.crypto` (colibri's decision 174), and through its `client`, which imports stdx's
+//!   decoders. The engine imports both by right.
 //! - No module rooted in `src/` reaches a module of colibri, at any depth.
 //!
 //! The first part, `tools/graph_check.zig`, asks the compiler about one module's shape. This part
@@ -80,17 +81,19 @@ const canary_through = "examples/cpu_text.zig";
 
 const canaries = [_]Canary{
     // A direct import.
-    .{ .rule = .stdx, .root = modules.roots.cocuyo, .package = .stdx, .module = "platform" },
-    .{ .rule = .stdx, .root = modules.roots.io, .package = .stdx, .module = "platform" },
-    .{ .rule = .colibri, .root = modules.roots.cocuyo, .package = .colibri, .module = "tls" },
+    // stdx and colibri each export one module, named for the package (stdx's decision 6 as amended,
+    // colibri's decision 170).
+    .{ .rule = .stdx, .root = modules.roots.cocuyo, .package = .stdx, .module = "stdx" },
+    .{ .rule = .stdx, .root = modules.roots.io, .package = .stdx, .module = "stdx" },
+    .{ .rule = .colibri, .root = modules.roots.cocuyo, .package = .colibri, .module = "colibri" },
     // An import through a module of this tree, rooted outside the rule's directory.
-    .{ .rule = .stdx, .root = modules.roots.cocuyo, .package = .stdx, .module = "platform", .through = canary_through },
-    .{ .rule = .stdx, .root = modules.roots.io, .package = .stdx, .module = "platform", .through = canary_through },
-    .{ .rule = .colibri, .root = modules.roots.cocuyo, .package = .colibri, .module = "tls", .through = modules.roots.io_doh_channel },
-    // colibri's `tls`, which imports stdx's `platform`: below it the walk from `src/` reads on, and
-    // the walk from `io/` stops.
-    .{ .rule = .stdx, .root = modules.roots.cocuyo, .package = .colibri, .module = "tls" },
-    .{ .rule = .stdx, .root = modules.roots.io, .package = .colibri, .module = "tls", .expect = .passed },
+    .{ .rule = .stdx, .root = modules.roots.cocuyo, .package = .stdx, .module = "stdx", .through = canary_through },
+    .{ .rule = .stdx, .root = modules.roots.io, .package = .stdx, .module = "stdx", .through = canary_through },
+    .{ .rule = .colibri, .root = modules.roots.cocuyo, .package = .colibri, .module = "colibri", .through = modules.roots.io_doh_channel },
+    // colibri's module, which reaches stdx: below it the walk from `src/` reads on, and the walk
+    // from `io/` stops.
+    .{ .rule = .stdx, .root = modules.roots.cocuyo, .package = .colibri, .module = "colibri" },
+    .{ .rule = .stdx, .root = modules.roots.io, .package = .colibri, .module = "colibri", .expect = .passed },
 };
 
 /// The root of each canary's root module: a file the canary itself never imports.

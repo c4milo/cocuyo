@@ -6,7 +6,8 @@
 //! is compiled by nothing else. `test/consumer/` is that dependent: it declares cocuyo by
 //! relative path, imports `cocuyo`, and builds a query through the table with the cache under it.
 //! The tool runs that program once it builds, so what the table asserts of its memory runs too.
-//! It also builds the engine on a rotor of its own, and over DoQ and DoT with a colibri of its own.
+//! It also builds the engine on a rotor of its own, and over DoQ and DoT with a colibri and a stdx
+//! of its own.
 //!
 //! The refusals are the same package with each value of `-Dreach-inside`. The first asks for
 //! `sim`, which the build registers under no name. The rest reach for a path that left the surface
@@ -16,10 +17,11 @@
 //! passes on a failure of another cause. Examples are a path with a typo, an absent Zig and a
 //! broken invocation.
 //!
-//! The package pins its own rotor and colibri, and binds them where a consumer binds them
+//! The package pins its own rotor, colibri and stdx, and binds them where a consumer binds them
 //! (docs/design.md §24, §16 decision 38, as amended). Each pin must be the one cocuyo's
 //! `build.zig.zon` holds: at another pin the package builds cocuyo against a package cocuyo does
-//! not pin. So the tool compares the pins first, and stops at one that differs.
+//! not pin, and a stdx at another pin is a second stdx beside colibri's. So the tool compares the
+//! pins first, and stops at one that differs.
 //!
 //! Usage: `consumer_check <zig-exe> <package-dir> <cache-dir> <build.zig.zon>`
 const std = @import("std");
@@ -54,7 +56,7 @@ const output_bytes_max: std.Io.Limit = .limited(1 << 20);
 const manifest_bytes_max: std.Io.Limit = .limited(1 << 20);
 
 /// The packages the fixture pins for itself, each of which cocuyo's manifest pins too.
-const pinned = [_][]const u8{ "rotor", "colibri" };
+const pinned = [_][]const u8{ "rotor", "colibri", "stdx" };
 
 // Each name of `pinned` is the name of an entry, so none is empty.
 comptime {
@@ -111,7 +113,8 @@ pub fn main(init: std.process.Init) !void {
     if (reached > 0) std.process.exit(1);
 }
 
-/// Stops the program when the package's manifest pins rotor or colibri apart from `manifest_path`.
+/// Stops the program when the package's manifest pins rotor, colibri or stdx apart from
+/// `manifest_path`.
 fn require_pins(arena: std.mem.Allocator, io: std.Io, manifest_path: []const u8, package: []const u8) !void {
     // `build/consumer_check.zig` passes both, and an empty one is that file's error.
     assert(manifest_path.len > 0);
@@ -238,7 +241,7 @@ test "each refusal names a program of the fixture, once" {
     }
 }
 
-/// A manifest as cocuyo's is written: a lazy package before the two, and the two with their URLs.
+/// A manifest as cocuyo's is written: a lazy package before the three, and the three with their URLs.
 const manifest_sample =
     \\.dependencies = .{
     \\    .pepegrillo = .{ .url = "git+https://example.invalid/p", .hash = "pepegrillo-0", .lazy = true },
@@ -251,6 +254,11 @@ const manifest_sample =
     \\        .url = "git+https://example.invalid/colibri?ref=v0.8.0#2",
     \\        .hash = "colibri-0.8.0-b",
     \\    },
+    \\    .stdx = .{
+    \\        .url = "git+https://example.invalid/stdx#3",
+    \\        .hash = "stdx-0.3.0-e",
+    \\        .lazy = true,
+    \\    },
     \\},
 ;
 
@@ -262,15 +270,22 @@ test "a pin is the hash of the package's own entry, and none when the manifest h
     try testing.expectEqual(null, hash_of(manifest_sample, "example"));
     // An entry with no hash has none, whatever hash the next entry holds.
     try testing.expectEqual(null, hash_of(".stdx = .{ .url = \"u\" },\n.rotor = .{ .hash = \"r\" },", "stdx"));
-    try testing.expectEqual(null, hash_of(manifest_sample, "stdx"));
+    try testing.expectEqualStrings("stdx-0.3.0-e", hash_of(manifest_sample, "stdx").?);
+    try testing.expectEqual(null, hash_of(manifest_sample, "chapulin"));
 }
 
 test "the fixture's pins must be the manifest's, each of them" {
     try testing.expectEqual(null, pin_apart(manifest_sample, manifest_sample));
-    const other_colibri = "    .rotor = .{ .hash = \"rotor-0.4.0-a\" },\n    .colibri = .{ .hash = \"colibri-0.7.0-c\" },\n";
+    const stdx_entry = "    .stdx = .{ .hash = \"stdx-0.3.0-e\" },\n";
+    const other_colibri = "    .rotor = .{ .hash = \"rotor-0.4.0-a\" },\n    .colibri = .{ .hash = \"colibri-0.7.0-c\" },\n" ++ stdx_entry;
     try testing.expectEqualStrings("colibri", pin_apart(manifest_sample, other_colibri).?);
-    const no_colibri = "    .rotor = .{ .hash = \"rotor-0.4.0-a\" },\n";
+    const no_colibri = "    .rotor = .{ .hash = \"rotor-0.4.0-a\" },\n" ++ stdx_entry;
     try testing.expectEqualStrings("colibri", pin_apart(manifest_sample, no_colibri).?);
-    const other_rotor = "    .rotor = .{ .hash = \"rotor-0.5.0-d\" },\n    .colibri = .{ .hash = \"colibri-0.8.0-b\" },\n";
+    const other_rotor = "    .rotor = .{ .hash = \"rotor-0.5.0-d\" },\n    .colibri = .{ .hash = \"colibri-0.8.0-b\" },\n" ++ stdx_entry;
     try testing.expectEqualStrings("rotor", pin_apart(manifest_sample, other_rotor).?);
+    // A stdx at another commit is a second stdx beside colibri's.
+    const both = "    .rotor = .{ .hash = \"rotor-0.4.0-a\" },\n    .colibri = .{ .hash = \"colibri-0.8.0-b\" },\n";
+    try testing.expectEqualStrings("stdx", pin_apart(manifest_sample, both ++ "    .stdx = .{ .hash = \"stdx-0.2.0-f\" },\n").?);
+    try testing.expectEqualStrings("stdx", pin_apart(manifest_sample, both).?);
+    try testing.expectEqual(null, pin_apart(manifest_sample, both ++ stdx_entry));
 }

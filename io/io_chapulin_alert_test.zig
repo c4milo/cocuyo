@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 // The engine's constants, through the engine's module: a file belongs to one module.
 const constants = @import("io").constants;
-const tls = @import("tls");
+const tls = @import("colibri").tls;
 const Session = @import("io_chapulin.zig").Session;
 
 const testing = std.testing;
@@ -32,8 +32,8 @@ const anchors = [_]tls.Anchor{.{ .subject = @embedFile("testdata/identity.name")
 /// An instant inside the identity's validity, 2026-06-01T00:00:00Z.
 const unix_seconds: u64 = 1_780_272_000;
 
-/// What the test states of the CPU: nothing (docs/design.md §16 decision 48).
-const cpu_not_stated: Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated };
+/// What the test states of the CPU: no instruction (docs/design.md §16 decision 48).
+const support = @import("io_crypto_test_support.zig");
 /// RFC 9846 §4.3.2's cookie key, and the octets each side's stream is seeded with. Test-only values.
 const cookie_octet: u8 = 0x5e;
 const cookie_key: [tls.constants.protocol.server_key_len]u8 = @splat(cookie_octet);
@@ -56,7 +56,9 @@ const Sides = struct {
     context: Session.Context = undefined,
     config: tls.record.ServerConfig = undefined,
     server: tls.record.Server = undefined,
-    server_stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(server_seed_octet)),
+    /// The streams each side's context draws from, which the test seeds.
+    client_stream: std.Random.ChaCha = undefined,
+    server_stream: std.Random.ChaCha = undefined,
     to_server: Flight = .{},
     to_client: Flight = .{},
 };
@@ -103,9 +105,11 @@ test "a session that is up stages the record_overflow alert the engine names, wh
     const sides = try testing.allocator.create(Sides);
     defer testing.allocator.destroy(sides);
     sides.* = .{};
-    sides.context = .init(&anchors, cpu_not_stated, @splat(client_seed_octet), .{ .unix_seconds = unix_seconds, .monotonic_ns = 0 });
-    try sides.config.init(.{ .identities = &identities, .cookie_key = &cookie_key, .cpu = cpu_not_stated });
-    try sides.server.start(&sides.config, sides.server_stream.random(), unix_seconds);
+    sides.client_stream = support.stream(client_seed_octet);
+    sides.server_stream = support.stream(server_seed_octet);
+    sides.context = .init(&anchors, support.crypto(.nothing, &sides.client_stream).?, .{ .unix_seconds = unix_seconds, .monotonic_ns = 0 });
+    try sides.config.init(.{ .identities = &identities, .cookie_key = &cookie_key, .crypto = support.crypto(.nothing, &sides.server_stream).? });
+    try sides.server.start(&sides.config, unix_seconds);
     defer sides.server.close();
     const server: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
     try sides.session.start(.{ .tls = &server, .ticket = @as(?Session.Ticket, null), .ticket_age_ns = @as(u64, 0), .context = &sides.context, .now_ns = @as(u64, 0) });

@@ -13,21 +13,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
-const client = @import("client");
-const tls = @import("tls");
+const client = @import("colibri").client;
+const tls = @import("colibri").tls;
 const doh = @import("doh");
-const hooks = @import("chapulin_hooks");
 pub const constants = @import("io_doh_channel_constants.zig");
 pub const limits = @import("io_doh_channel_limits.zig");
 const exchange_module = @import("io_doh_channel_exchange.zig");
 const start_module = @import("io_doh_channel_start.zig");
 const read_module = @import("io_doh_channel_read.zig");
-
-// colibri's objects call `ch_assert_fail` whatever of chapulin a program uses, so the image links
-// it whenever it links this module.
-comptime {
-    _ = hooks;
-}
 
 pub const Options = struct {
     /// The exchanges a channel holds at once, each with its answer buffer: the responses it has in
@@ -165,4 +158,5 @@ test {
     _ = @import("io_doh_channel_engine_test.zig");
     _ = @import("io_doh_channel_quic_test.zig");
     _ = @import("io_doh_channel_cause_test.zig");
+    _ = @import("io_doh_channel_template_test.zig");
 }

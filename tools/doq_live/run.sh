@@ -18,11 +18,11 @@
 # alone.
 # Each resolver is also asked AAAA, MX, TXT and HTTPS at once, of a name that has each, and must
 # answer each with records of that type.
-# Each resolver resolves its two names in two runs: first without the word `cpu`, then with it
-# (docs/design.md §16 decision 48). Without the word each handshake must run ChaCha20-Poly1305.
-# With it each must run AES-GCM on an arm64 host whose system reports the AES instructions, PMULL
-# and FEAT_DIT, and ChaCha20-Poly1305 elsewhere. On an arm64 Mac whose sysctl does not report all
-# three, each run with the word fails (tools/cpu_word/suite.sh).
+# Each resolver resolves its two names in one run (docs/design.md §16 decision 48, as amended on
+# 2026-11-26). The example detects the CPU's features, so each handshake must run AES-GCM on a host
+# whose system reports the AES instructions and a carry-less multiply, on arm64 with FEAT_DIT too,
+# and ChaCha20-Poly1305 elsewhere. On an arm64 Mac whose sysctl does not report all three, each run
+# fails (tools/cpu_suite/suite.sh).
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -30,8 +30,8 @@ root=$(cd "$here/../.." && pwd)
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 store=/System/Library/Keychains/SystemRootCertificates.keychain
-. "$root/tools/cpu_word/suite.sh"
-cpu_word_says
+. "$root/tools/cpu_suite/suite.sh"
+cpu_suite_says
 
 # A root from the system store, by its common name, as DER.
 root_der() {
@@ -43,7 +43,7 @@ root_der "ISRG Root X1" unrelated
 lookup_names() {
     names=$1
     shift
-    (cd "$root" && zig build example-doq-rotor -- $word "$names" "$@" 2>&1)
+    (cd "$root" && zig build example-doq-rotor -- "$names" "$@" 2>&1)
 }
 lookup() {
     lookup_names example.com,example.org "$@"
@@ -77,26 +77,22 @@ reads_types() {
 failures=0
 for resolver in "94.140.14.14 dns.adguard-dns.com" "45.90.28.0 dns.nextdns.io"; do
     set -- $resolver
-    for word in "" cpu; do
-        with=$(cpu_word_named)
-        if answer=$(lookup "$1" "$2" "$out/usertrust.der") && echo "$answer" | grep -q "example.com A" &&
-            echo "$answer" | grep -q "example.org A"; then
-            how=$(echo "$answer" | sed -n 's/^example\.org: handshake //p')
-            if ! over=$(cpu_word_check "$answer"); then
-                echo "RESOLVES through $2 over DoQ$with, but $over" >&2
-                failures=$((failures + 1))
-            elif [ "$how" = resumed ]; then
-                echo "resolves through $2 over DoQ$with, over $over, and resumes"
-            else
-                echo "RESOLVES through $2 over DoQ$with, but does not resume: $how" >&2
-                failures=$((failures + 1))
-            fi
+    if answer=$(lookup "$1" "$2" "$out/usertrust.der") && echo "$answer" | grep -q "example.com A" &&
+        echo "$answer" | grep -q "example.org A"; then
+        how=$(echo "$answer" | sed -n 's/^example\.org: handshake //p')
+        if ! over=$(cpu_suite_check "$answer"); then
+            echo "RESOLVES through $2 over DoQ, but $over" >&2
+            failures=$((failures + 1))
+        elif [ "$how" = resumed ]; then
+            echo "resolves through $2 over DoQ, over $over, and resumes"
         else
-            echo "FAILS through $2$with: $answer" >&2
+            echo "RESOLVES through $2 over DoQ, but does not resume: $how" >&2
             failures=$((failures + 1))
         fi
-    done
-    word=
+    else
+        echo "FAILS through $2: $answer" >&2
+        failures=$((failures + 1))
+    fi
     reads_types "$2" "$1" "$2" "$out/usertrust.der"
 done
 

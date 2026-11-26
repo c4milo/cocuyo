@@ -4,7 +4,7 @@
 //! colibri's `tls`, strict as HTTPS is (RFC 9110 §4.3.4).
 //!
 //!     zig build example-doh-rotor -- \
-//!         [cpu] [dnssec <anchor file>] <name>[,<name>...] <server address> <URI template> <root certificate>...
+//!         [dnssec <anchor file>] <name>[,<name>...] <server address> <URI template> <root certificate>...
 //!
 //! for instance `example.com 1.1.1.1 https://cloudflare-dns.com/dns-query{?dns} ssl-com-ecc.der`.
 //! Each root is a DER certificate the server's chain is expected to end at
@@ -18,27 +18,27 @@
 //! resolved at once, each an exchange of its own. After each turn the example says how its
 //! connection handshook, the suite it chose, and which version of HTTP it came up on.
 //!
-//! With the word `cpu` first, the example states its CPU (`examples/cpu_text.zig`, docs/design.md
-//! §16 decision 48). It probes the CPU through stdx's `platform`, and on arm64 sets PSTATE.DIT
-//! where the probe found FEAT_DIT. There it states `data_independent`, and each hello offers
-//! AES-GCM first where the probe also found the AES instructions. Elsewhere, and without the word,
-//! the example states nothing, and each hello offers TLS_CHACHA20_POLY1305_SHA256 alone. The
-//! example says what it states before the first turn.
+//! The example detects the CPU's features through stdx's `platform` (`examples/cpu_text.zig`,
+//! docs/design.md §16 decision 48, as amended), and on arm64 sets PSTATE.DIT where detection found
+//! FEAT_DIT. Each hello then offers AES-GCM first where the CPU has the AES and carry-less multiply
+//! instructions, on arm64 only with the bit set, and TLS_CHACHA20_POLY1305_SHA256 alone elsewhere.
+//! The example says what it detected before the first turn.
 //!
-//! With the word `dnssec` and a file of DS or DNSKEY records after `cpu`, the example validates
+//! With the word `dnssec` and a file of DS or DNSKEY records first, the example validates
 //! each lookup from those anchors (`examples/trust_text.zig`, docs/design.md §25 step 15).
 //!
 //! What cocuyo does not read, the caller hands in (§24):
 //!
 //! - the wall clock, for the certificate's dates;
-//! - octets from a CSPRNG, for the handshake's keys and the QUIC connection IDs;
-//! - what it states of its CPU.
+//! - a CSPRNG, for the handshake's keys and the QUIC connection IDs, which `io.randomSecure`
+//!   gives;
+//! - what it states of its CPU, in the `stdx.crypto.Context` of both.
 const std = @import("std");
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const io = @import("io");
 const cocuyo_doh = @import("cocuyo_doh");
-const tls = @import("tls");
+const tls = @import("colibri").tls;
 const answer_text = @import("answer_text.zig");
 const server_text = @import("server_text.zig");
 const root_text = @import("root_text.zig");
@@ -89,11 +89,11 @@ const at_once_max = 4;
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     // Once, at the start, on the one thread that drives the engine and its channel.
-    const command = cpu_text.command(tls.Cpu, try init.minimal.args.toSlice(arena));
-    const trusted = trust_text.read(command.operands);
+    const features = cpu_text.detect();
+    const trusted = trust_text.read((try init.minimal.args.toSlice(arena))[1..]);
     const arguments = trusted.operands;
     if (arguments.len < 3) {
-        std.debug.print("usage: doh-rotor [cpu] [dnssec <anchor file>] <name>[,<name>...] <server address> <URI template> <root certificate>...\n", .{});
+        std.debug.print("usage: doh-rotor [dnssec <anchor file>] <name>[,<name>...] <server address> <URI template> <root certificate>...\n", .{});
         std.process.exit(2);
     }
     const at = try server_text.place_of(arguments[1]);
@@ -135,13 +135,15 @@ pub fn main(init: std.process.Init) !void {
         anchors[index] = try root_text.anchor_of(tls.Anchor, der);
     }
 
-    var seed: [std.Random.ChaCha.secret_seed_length]u8 = undefined;
-    try init.io.randomSecure(&seed);
+    // The source of every session's keys, which outlives the engine, and the one context of the
+    // CPU and the source (colibri decision 175).
+    var secure: cpu_text.SecureRandom = .{ .io = init.io };
+    const crypto = cpu_text.context(features, &secure);
     var engine_seed: [@sizeOf(u64)]u8 = undefined;
     try init.io.randomSecure(&engine_seed);
     const clock: Clock = .init(init.io);
     const unix_seconds: u64 = @intCast(@divFloor(std.Io.Timestamp.now(init.io, .real).nanoseconds, std.time.ns_per_s));
-    cpu_text.report(command.cpu);
+    cpu_text.report(features);
 
     var loop: rotor.Loop = undefined;
     try loop.init(&loop_memory, &loop_options);
@@ -150,7 +152,7 @@ pub fn main(init: std.process.Init) !void {
     try engine.init(&loop, &config, cache_memory.slices(), std.mem.readInt(u64, &engine_seed, .little), clock.read());
     // The engine has no context of its own, and a lookup started before this call would stop the
     // program at an assertion (docs/design.md §16 decision 39).
-    engine.use_doh(.init(anchors[0..roots.len], command.cpu, seed, .{ .unix_seconds = unix_seconds, .monotonic_ns = clock.read() }));
+    engine.use_doh(.init(anchors[0..roots.len], crypto, .{ .unix_seconds = unix_seconds, .monotonic_ns = clock.read() }));
     defer {
         engine.deinit();
         loop.drain(&events) catch {};

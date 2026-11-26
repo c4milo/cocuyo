@@ -21,11 +21,11 @@
 # resolver is also asked AAAA, MX, TXT and HTTPS at once, of a name that has each, and must answer
 # each with records of that type. Google, which shows one of two chains, is asked one name with
 # each of its roots alone, and the run says which chain it met.
-# Each resolver resolves its two names in two runs: first without the word `cpu`, then with it
-# (docs/design.md §16 decision 48). Without the word each handshake must run ChaCha20-Poly1305.
-# With it each must run AES-GCM on an arm64 host whose system reports the AES instructions, PMULL
-# and FEAT_DIT, and ChaCha20-Poly1305 elsewhere. On an arm64 Mac whose sysctl does not report all
-# three, each run with the word fails (tools/cpu_word/suite.sh).
+# Each resolver resolves its two names in one run (docs/design.md §16 decision 48, as amended on
+# 2026-11-26). The example detects the CPU's features, so each handshake must run AES-GCM on a host
+# whose system reports the AES instructions and a carry-less multiply, on arm64 with FEAT_DIT too,
+# and ChaCha20-Poly1305 elsewhere. On an arm64 Mac whose sysctl does not report all three, each run
+# fails (tools/cpu_suite/suite.sh).
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -33,8 +33,8 @@ root=$(cd "$here/../.." && pwd)
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 store=/System/Library/Keychains/SystemRootCertificates.keychain
-. "$root/tools/cpu_word/suite.sh"
-cpu_word_says
+. "$root/tools/cpu_suite/suite.sh"
+cpu_suite_says
 
 # A root from the system store, by its common name, as DER. A name the store does not hold stops
 # the check here, by that name.
@@ -70,7 +70,7 @@ chain() {
 lookup_names() {
     names=$1
     shift
-    (cd "$root" && zig build example-doh-rotor -- $word "$names" "$@" 2>&1)
+    (cd "$root" && zig build example-doh-rotor -- "$names" "$@" 2>&1)
 }
 lookup() {
     lookup_names example.com,example.org "$@"
@@ -111,31 +111,27 @@ for resolver in "8.8.8.8 https://dns.google/dns-query{?dns} gts-root-r1 gts-root
     roots=
     for each in "$@"; do roots="$roots $out/$each.der"; done
     set -- "$address" "$template"
-    for word in "" cpu; do
-        with=$(cpu_word_named)
-        if answer=$(lookup "$1" "$2" $roots) && echo "$answer" | grep -q "example.com A" &&
-            echo "$answer" | grep -q "example.org A"; then
-            how=$(echo "$answer" | sed -n 's/^example\.org: handshake //p')
-            over=$(echo "$answer" | sed -n 's/^example\.org: over //p')
-            if ! suite=$(cpu_word_check "$answer"); then
-                echo "RESOLVES through $2 over DoH on $over$with, but $suite" >&2
-                failures=$((failures + 1))
-                continue
-            fi
-            case $how in
-            resumed) echo "resolves through $2 over DoH on $over$with, over $suite, and resumes" ;;
-            "in full, its ticket declined")
-                echo "resolves through $2 over DoH on $over$with, over $suite, which declined the ticket: in full on the same connection" ;;
-            *) echo "resolves through $2 over DoH on $over$with, over $suite, but spends no ticket: $how" ;;
-            esac
-        else
-            echo "FAILS through $2$with: $answer" >&2
-            host=$(echo "$2" | sed 's|^https://\([^/]*\)/.*|\1|')
-            echo "  $host shows: $(chain "$1:443" "$host")" >&2
+    if answer=$(lookup "$1" "$2" $roots) && echo "$answer" | grep -q "example.com A" &&
+        echo "$answer" | grep -q "example.org A"; then
+        how=$(echo "$answer" | sed -n 's/^example\.org: handshake //p')
+        over=$(echo "$answer" | sed -n 's/^example\.org: over //p')
+        if ! suite=$(cpu_suite_check "$answer"); then
+            echo "RESOLVES through $2 over DoH on $over, but $suite" >&2
             failures=$((failures + 1))
+        else
+            case $how in
+            resumed) echo "resolves through $2 over DoH on $over, over $suite, and resumes" ;;
+            "in full, its ticket declined")
+                echo "resolves through $2 over DoH on $over, over $suite, which declined the ticket: in full on the same connection" ;;
+            *) echo "resolves through $2 over DoH on $over, over $suite, but spends no ticket: $how" ;;
+            esac
         fi
-    done
-    word=
+    else
+        echo "FAILS through $2: $answer" >&2
+        host=$(echo "$2" | sed 's|^https://\([^/]*\)/.*|\1|')
+        echo "  $host shows: $(chain "$1:443" "$host")" >&2
+        failures=$((failures + 1))
+    fi
     reads_types "$2" "$1" "$2" $roots
 done
 
